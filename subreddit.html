@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html class="chrome js-focus-visible performance-mode-normal" >
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title ng-bind="app.pageTitle">Subreddit</title>
+
+
+  <script src="jquery.js"></script>
+  <script src="subreddit.js"></script>
+  <script src="comment_template.js"></script>
+  <script>
+
+    var all_comment_data = [];
+    var submission_data = [];
+
+    function getSubmission(submission_id, subreddit, new_submission) { // When user presses on a post
+      console.log("showSubmission");
+      addShade(submission_id); // Adding the shading on the left rail
+      var comments_area = document.getElementById("submission_comments");
+      comments_area.innerHTML = "";
+      if (new_submission) { // new_submission exists to not get the data that is already loaded. If user clicks on the post that is already being shown, it will not access the reddit API.
+        $.get("https://www.reddit.com/r/" + subreddit + "/comments/" + submission_id + ".json").then(function (back, status) {
+          console.log(back);
+          console.log("https://www.reddit.com/r/" + subreddit + "/comments/" + submission_id + ".json");
+          all_comment_data = back[1];                      // These global variables exists for easy access
+          submission_data = back[0].data.children[0].data; // of the submission data received from the API
+          showSubmissionToHTML();
+        })
+      } else {
+        showSubmissionToHTML();
+      }
+    }
+
+    function showSubmissionToHTML() {
+      console.log("showSubmissionHTML");
+      var selftext = ""
+      if ("selftext" in submission_data) { // If post has a body, we append it.
+        selftext = submission_data.selftext;
+      }
+      var comments_area = document.getElementById("submission_comments");
+
+      var submission_url_hostname = extractHostname(submission_data.url); // Getting the hostname of the url received from reddit API.
+
+      console.log(submission_data.url.slice(submission_data.url.length - 4))
+
+      // Filtering out all websites but reddit and imgur. This is because of the hard to access resolutions of some urls. Also, temporarily filtering out gifs, so to only show their url.
+      if ((submission_url_hostname == "www.reddit.com" || submission_url_hostname == "i.redd.it" || submission_url_hostname == "v.redd.it" || submission_url_hostname == "i.imgur.com") && submission_data.url.slice(submission_data.url.length - 4) !== "gifv") {
+        if (submission_data.media !== null) { // If there is a video in submission
+          comments_area.innerHTML += addParentWithVideo(submission_data.author, submission_data.score, submission_data.title, submission_data, selftext);
+        } else if ("preview" in submission_data) { // If there is an image in the submission. NOTE: "preview" will also exist in video submission. Filtering out the videos above is used as an easy fix.
+          comments_area.innerHTML += addParentWithImage(submission_data.author, submission_data.score, submission_data.title, submission_data.preview.images[0].resolutions, selftext);
+        } else { // If the submission don't have any media. Eg. AskReddit
+          comments_area.innerHTML += addParent(submission_data.author, submission_data.score, submission_data.title, [], selftext);
+        }
+      } else { // If the url is none of the above, or if the submission includes a gif.
+        var different_url = submission_data.url;
+        var different_url_html = `<a href="${different_url}">${different_url}</a>`;
+        console.log(different_url_html)
+        comments_area.innerHTML += addParent(submission_data.author, submission_data.score, submission_data.title, [], different_url_html) // Adding the post, but with the different url as body of the submission.
+      }
+
+      var comments_data = all_comment_data.data.children;
+      comments_data.forEach(function (comment) { // Adding comments
+        if (comment.kind != "more" && comment.data.author != "AutoModerator") { // "more" is not a comment, don't really know what it is to be honest. Not a comment though.
+          comments_area.innerHTML += addComment(comment.data.author, comment.data.score, comment.data.body, [comment.data.id]);
+        }
+      });
+    }
+
+    function addShade(id) { // Removing all previous shades, then adds shade on the selected one.
+      console.log("selectSubmission");
+      var submission_title_list_children = document.getElementById("submission_title_list").children;
+      for (var i = 0; i < submission_title_list_children.length; i++) {
+        submission_title_list_children[i].classList.remove("left-rail-selected");
+      }
+      var title_html = document.getElementById(id);
+      title_html.classList.add("left-rail-selected");
+    }
+
+    function showReplies(id_tree, back) { // id_tree is a list of where in the comment-tree we're in.
+      console.log("showReplies");
+      if (id_tree.length == 0 && back) { // If we go back all the way to the OP
+        getSubmission(submission_data.id, all_comment_data.data.children[0].data.subreddit, false);
+      } else {
+        var placeholder_data = all_comment_data;
+        for (var i = 0; i < id_tree.length; i++) {
+          var j = findCommentId(placeholder_data.data.children, id_tree[i]);
+          if (i + 1 == id_tree.length) {
+            placeholder_data = placeholder_data.data.children[j].data;
+          } else {
+            placeholder_data = placeholder_data.data.children[j].data.replies;
+          }
+        }
+        id_tree_back = [...id_tree];
+        id_tree_back.splice(-1, 1);
+
+        var selftext = ""
+        if ("selftext" in placeholder_data) {
+          selftext = placeholder_data.selftext;
+        }
+
+        var comments_area = document.getElementById("submission_comments");
+        comments_area.innerHTML = "";
+        comments_area.innerHTML += addParent(placeholder_data.author, placeholder_data.score, placeholder_data.body, id_tree_back, selftext);
+        placeholder_data.replies.data.children.forEach(function (reply) { // Adding the replies to the comment to the HTML
+          if (reply.kind == "t1") {
+            var new_id_tree = id_tree.concat([reply.data.id]);
+            comments_area.innerHTML += addComment(reply.data.author, reply.data.score, reply.data.body, new_id_tree);
+          }
+        })
+      }
+    }
+
+    function findCommentId(array, id) {
+      console.log("findCommentId");
+      for (var i = 0; i < array.length; i++) {
+        if (array[i].data.id == id) {
+          return i;
+        }
+      }
+    }
+
+    function hideImage(url, width, height) {
+      var submission_image = document.getElementById("submission_image");
+      var space_maker = document.getElementById("space_maker");
+      var toggle_image_button = document.getElementById("toggle_image_button");
+      submission_image.src = "";
+      space_maker.style.marginBottom = "0px";
+      toggle_image_button.innerHTML = "Show image";
+      toggle_image_button.onclick = function () { showImage(url, width, height) };
+    }
+
+    function showImage(url, width, height) {
+      console.log(url, width, height);
+      var submission_image = document.getElementById("submission_image");
+      var space_maker = document.getElementById("space_maker");
+      var toggle_image_button = document.getElementById("toggle_image_button");
+      submission_image.src = url;
+      submission_image.style.width = width;
+      submission_image.style.height = height;
+      space_maker.style.marginBottom = height;
+      toggle_image_button.innerHTML = "Hide image";
+      toggle_image_button.onclick = function () { hideImage(url, width, height); }
+    }
+
+    function hideVideo(video_src, audio_src, width, height) {
+      var submission_video = document.getElementById("submission_video");
+      var toggle_video_button = document.getElementById("toggle_video_button");
+      submission_video.innerHTML = "";
+      toggle_video_button.innerHTML = "Show video";
+      toggle_video_button.onclick = function () { showVideo(video_src, audio_src, width, height) };
+    }
+
+    function showVideo(video_src, audio_src, width, height) {
+      console.log("RES: ", width, height)
+      var submission_image = document.getElementById("submission_video");
+      var toggle_video_button = document.getElementById("toggle_video_button");
+      var resized_width = Math.round((512 / height) * width);
+      submission_image.innerHTML = `
+      <video height="512" width="${resized_width}" onplay="audio.play();" onpause="audio.pause();" controls>
+        <source src="${video_src}" type="video/mp4">
+        <audio id="audio" controls>
+            <source src="${audio_src}" type="audio/mpeg"/>
+        </audio>
+        Your browser does not support the video tag.
+      </video>
+      `
+      toggle_video_button.innerHTML = "Hide video";
+      toggle_video_button.onclick = function () { hideVideo(video_src, audio_src, width, height); }
+    }
+
+    function extractHostname(url) {
+      var hostname;
+      if (url.indexOf("//") > -1) {
+        hostname = url.split('/')[2];
+      }
+      else {
+        hostname = url.split('/')[0];
+      }
+      hostname = hostname.split(':')[0];
+      hostname = hostname.split('?')[0];
+      return hostname;
+    }
+
+
+  </script>
+  <link id="themed-stylesheet" rel="stylesheet" href="./styles/subreddit.css">
+</head>
+
+<body class="exp-density-view initialized hide-messages power-bar-visible loadingscreendone">
+  <div class="outer-shell">
+    <div analytics-panel="0">
+      <app-header-bar>
+        <div class="app-header-bar app-bar-app-header-bar-common">
+          <waffle>
+            <div class="ts-waffle">
+              <div class="waffle-header">
+                <div class="waffle-button-container">
+                  <button class="ts-sym icons-compose icons-white-override inset-border inset-border-round inset-border-themed">
+                    <svg-include>
+                      <svg x="0px" y="0px" viewBox="0 0 32 32" class="app-svg icons-waffle">
+                        <g class="icons-default-fill">
+                          <path d="M10.5,9c0.208,0,0.403,0.039,0.586,0.117c0.182,0.078,0.341,0.185,0.477,0.32
+        c0.135,0.136,0.242,0.294,0.32,0.477C11.961,10.097,12,10.292,12,10.5c0,0.208-0.039,0.404-0.117,0.586
+        c-0.078,0.183-0.185,0.341-0.32,0.477c-0.136,0.136-0.294,0.242-0.477,0.32C10.903,11.961,10.708,12,10.5,12
+        c-0.208,0-0.404-0.039-0.586-0.117c-0.183-0.078-0.341-0.185-0.477-0.32c-0.136-0.135-0.242-0.294-0.32-0.477
+        C9.039,10.904,9,10.708,9,10.5c0-0.208,0.039-0.403,0.117-0.586c0.078-0.182,0.185-0.341,0.32-0.477
+        c0.135-0.135,0.294-0.242,0.477-0.32C10.096,9.039,10.292,9,10.5,9z M10.5,15c0.208,0,0.403,0.039,0.586,0.117
+        c0.182,0.078,0.341,0.185,0.477,0.32c0.135,0.136,0.242,0.294,0.32,0.477C11.961,16.097,12,16.292,12,16.5
+        c0,0.208-0.039,0.404-0.117,0.586c-0.078,0.183-0.185,0.342-0.32,0.477c-0.136,0.136-0.294,0.242-0.477,0.32
+        C10.903,17.961,10.708,18,10.5,18c-0.208,0-0.404-0.039-0.586-0.117c-0.183-0.078-0.341-0.185-0.477-0.32
+        c-0.136-0.135-0.242-0.294-0.32-0.477C9.039,16.904,9,16.708,9,16.5c0-0.208,0.039-0.403,0.117-0.586
+        c0.078-0.182,0.185-0.341,0.32-0.477c0.135-0.135,0.294-0.242,0.477-0.32C10.096,15.039,10.292,15,10.5,15z M10.5,21
+        c0.208,0,0.403,0.039,0.586,0.117c0.182,0.078,0.341,0.186,0.477,0.32c0.135,0.136,0.242,0.295,0.32,0.477
+        C11.961,22.097,12,22.292,12,22.5c0,0.209-0.039,0.404-0.117,0.586c-0.078,0.183-0.185,0.342-0.32,0.477
+        c-0.136,0.136-0.294,0.242-0.477,0.32C10.903,23.961,10.708,24,10.5,24c-0.208,0-0.404-0.039-0.586-0.117
+        c-0.183-0.078-0.341-0.185-0.477-0.32c-0.136-0.135-0.242-0.294-0.32-0.477C9.039,22.904,9,22.709,9,22.5
+        c0-0.208,0.039-0.403,0.117-0.586c0.078-0.182,0.185-0.341,0.32-0.477c0.135-0.135,0.294-0.242,0.477-0.32
+        C10.096,21.039,10.292,21,10.5,21z M16.5,9c0.208,0,0.403,0.039,0.586,0.117c0.182,0.078,0.341,0.185,0.477,0.32
+        c0.135,0.136,0.242,0.294,0.32,0.477C17.961,10.097,18,10.292,18,10.5c0,0.208-0.039,0.404-0.117,0.586
+        c-0.078,0.183-0.186,0.341-0.32,0.477c-0.136,0.136-0.295,0.242-0.477,0.32C16.903,11.961,16.708,12,16.5,12
+        c-0.208,0-0.404-0.039-0.586-0.117c-0.183-0.078-0.341-0.185-0.477-0.32c-0.136-0.135-0.242-0.294-0.32-0.477
+        C15.039,10.904,15,10.708,15,10.5c0-0.208,0.039-0.403,0.117-0.586c0.078-0.182,0.185-0.341,0.32-0.477
+        c0.135-0.135,0.294-0.242,0.477-0.32C16.096,9.039,16.292,9,16.5,9z M16.5,15c0.208,0,0.403,0.039,0.586,0.117
+        c0.182,0.078,0.341,0.185,0.477,0.32c0.135,0.136,0.242,0.294,0.32,0.477C17.961,16.097,18,16.292,18,16.5
+        c0,0.208-0.039,0.404-0.117,0.586c-0.078,0.183-0.186,0.342-0.32,0.477c-0.136,0.136-0.295,0.242-0.477,0.32
+        C16.903,17.961,16.708,18,16.5,18c-0.208,0-0.404-0.039-0.586-0.117c-0.183-0.078-0.341-0.185-0.477-0.32
+        c-0.136-0.135-0.242-0.294-0.32-0.477C15.039,16.904,15,16.708,15,16.5c0-0.208,0.039-0.403,0.117-0.586
+        c0.078-0.182,0.185-0.341,0.32-0.477c0.135-0.135,0.294-0.242,0.477-0.32C16.096,15.039,16.292,15,16.5,15z M16.5,21
+        c0.208,0,0.403,0.039,0.586,0.117c0.182,0.078,0.341,0.186,0.477,0.32c0.135,0.136,0.242,0.295,0.32,0.477
+        C17.961,22.097,18,22.292,18,22.5c0,0.209-0.039,0.404-0.117,0.586c-0.078,0.183-0.186,0.342-0.32,0.477
+        c-0.136,0.136-0.295,0.242-0.477,0.32C16.903,23.961,16.708,24,16.5,24c-0.208,0-0.404-0.039-0.586-0.117
+        c-0.183-0.078-0.341-0.185-0.477-0.32c-0.136-0.135-0.242-0.294-0.32-0.477C15.039,22.904,15,22.709,15,22.5
+        c0-0.208,0.039-0.403,0.117-0.586c0.078-0.182,0.185-0.341,0.32-0.477c0.135-0.135,0.294-0.242,0.477-0.32
+        C16.096,21.039,16.292,21,16.5,21z M22.5,12c-0.209,0-0.404-0.039-0.586-0.117c-0.183-0.078-0.342-0.185-0.477-0.32
+        c-0.136-0.135-0.242-0.294-0.32-0.477C21.039,10.904,21,10.708,21,10.5c0-0.208,0.039-0.403,0.117-0.586
+        c0.078-0.182,0.185-0.341,0.32-0.477c0.135-0.135,0.294-0.242,0.477-0.32C22.096,9.039,22.291,9,22.5,9
+        c0.208,0,0.403,0.039,0.586,0.117c0.182,0.078,0.341,0.185,0.477,0.32c0.135,0.136,0.242,0.294,0.32,0.477
+        C23.961,10.097,24,10.292,24,10.5c0,0.208-0.039,0.404-0.117,0.586c-0.078,0.183-0.186,0.341-0.32,0.477
+        c-0.136,0.136-0.295,0.242-0.477,0.32C22.903,11.961,22.708,12,22.5,12z M22.5,15c0.208,0,0.403,0.039,0.586,0.117
+        c0.182,0.078,0.341,0.185,0.477,0.32c0.135,0.136,0.242,0.294,0.32,0.477C23.961,16.097,24,16.292,24,16.5
+        c0,0.208-0.039,0.404-0.117,0.586c-0.078,0.183-0.186,0.342-0.32,0.477c-0.136,0.136-0.295,0.242-0.477,0.32
+        C22.903,17.961,22.708,18,22.5,18c-0.209,0-0.404-0.039-0.586-0.117c-0.183-0.078-0.342-0.185-0.477-0.32
+        c-0.136-0.135-0.242-0.294-0.32-0.477C21.039,16.904,21,16.708,21,16.5c0-0.208,0.039-0.403,0.117-0.586
+        c0.078-0.182,0.185-0.341,0.32-0.477c0.135-0.135,0.294-0.242,0.477-0.32C22.096,15.039,22.291,15,22.5,15z M22.5,21
+        c0.208,0,0.403,0.039,0.586,0.117c0.182,0.078,0.341,0.186,0.477,0.32c0.135,0.136,0.242,0.295,0.32,0.477
+        C23.961,22.097,24,22.292,24,22.5c0,0.209-0.039,0.404-0.117,0.586c-0.078,0.183-0.186,0.342-0.32,0.477
+        c-0.136,0.136-0.295,0.242-0.477,0.32C22.903,23.961,22.708,24,22.5,24c-0.209,0-0.404-0.039-0.586-0.117
+        c-0.183-0.078-0.342-0.185-0.477-0.32c-0.136-0.135-0.242-0.294-0.32-0.477C21.039,22.904,21,22.709,21,22.5
+        c0-0.208,0.039-0.403,0.117-0.586c0.078-0.182,0.185-0.341,0.32-0.477c0.135-0.135,0.294-0.242,0.477-0.32
+        C22.096,21.039,22.291,21,22.5,21z"></path>
+                        </g>
+                      </svg>
+                    </svg-include>
+                  </button>
+                </div>
+                <div class="teams-title">Microsoft Teams</div>
+              </div>
+            </div>
+          </waffle>
+          <power-bar class="fadeable">
+            <div class="app-top-power-bar">
+              <div class="ts-search-outer">
+                <button class="ts-sym icons-compose app-icons-fill-hover icons-white-override inset-border inset-border-themed app-header-bar-icons inset-border-round">
+                  <ng-include>
+                    <svg viewBox="0 0 32 32" class="app-svg icons-compose">
+                      <g>
+                        <path class="icons-default-fill icons-unfilled" d="M22.5,9.5c-0.7-0.7-1.9-0.7-2.7,0l-5.9,5.9c0,0-0.1,0.1-0.1,0.2L13,18.5c0,0.1,0,0.3,0.1,0.4c0.1,0.1,0.2,0.1,0.3,0.1
+             c0,0,0.1,0,0.1,0l2.8-0.7c0.1,0,0.1-0.1,0.2-0.1l5.9-5.9C23.2,11.5,23.2,10.3,22.5,9.5z M21.9,11.7L16,17.5l-2.1,0.5l0.5-2.1
+             l5.9-5.9c0.4-0.4,1.2-0.4,1.6,0C22.4,10.5,22.4,11.2,21.9,11.7z"></path>
+                        <path class="icons-default-fill icons-unfilled" d="M20.5,17c-0.3,0-0.5,0.2-0.5,0.5v4c0,0.3-0.2,0.5-0.5,0.5h-9c-0.3,0-0.5-0.2-0.5-0.5v-9c0-0.3,0.2-0.5,0.5-0.5h4
+             c0.3,0,0.5-0.2,0.5-0.5S14.8,11,14.5,11h-4C9.7,11,9,11.7,9,12.5v9c0,0.8,0.7,1.5,1.5,1.5h9c0.8,0,1.5-0.7,1.5-1.5v-4
+             C21,17.2,20.8,17,20.5,17z"></path>
+                        <path class="icons-default-fill icons-filled" d="M22.4,9.6C22,9.2,21.5,9,21,9s-1,0.2-1.4,0.6l-5.9,5.9c-0.1,0.1-0.1,0.1-0.1,0.2l-0.7,2.8c0,0.2,0,0.4,0.1,0.5
+          c0.1,0.1,0.2,0.1,0.4,0.1c0,0,0.1,0,0.1,0l2.8-0.7c0.1,0,0.2-0.1,0.2-0.1l5.9-5.9C23.2,11.6,23.2,10.4,22.4,9.6zM20.5,17c-0.3,0-0.5,0.2-0.5,0.5v4c0,0.3-0.2,0.5-0.5,0.5h-9c-0.3,0-0.5-0.2-0.5-0.5v-9c0-0.3,0.2-0.5,0.5-0.5h4
+          c0.3,0,0.5-0.2,0.5-0.5S14.8,11,14.5,11h-4C9.7,11,9,11.7,9,12.5v9c0,0.8,0.7,1.5,1.5,1.5h9c0.8,0,1.5-0.7,1.5-1.5v-4
+          C21,17.2,20.8,17,20.5,17z"></path>
+                      </g>
+                    </svg>
+                  </ng-include>
+                </button>
+                <form>
+                  <div class="input-group">
+                    <input class="ts-header-search ts-heading-font power-bar ng-pristine ng-untouched ng-valid ng-empty ng-valid-maxlength" placeholder="Search or type a command">
+                  </div>
+                </form>
+              </div>
+            </div>
+          </power-bar>
+          <div class="powerbar-profile fadeable">
+          </div>
+        </div>
+      </app-header-bar>
+    </div>
+
+    <div class="ts-main no-right-rail right-rail-ui-updates">
+      <div analytics-panel="1" context-view-component="left" class="app-left-wrapper pull-left">
+        <app-bar class="ts-main-flex app-bar app-bar-width pull-left app-full-viewport-height app-bar-offset">
+          <nav class="app-bar-items app-bar-width app-bar-app-header-bar-common simple-scrollbar apps-overflow-enabled">
+            <ul class="flex-fill app-bar-width ng-pristine ng-untouched ng-valid ng-not-empty">
+              <li class="app-bar-has-left-rail">
+                <button class="app-bar-link app-bar-button">
+                  <ng-include>
+                    <svg viewBox="0 0 32 32" class="app-svg icons-bell app-bar-icons-fill-colors">
+                      <g>
+                        <path class="icons-default-fill icons-unfilled"
+                          d="M16,23.5c-1.1,0-2-0.9-2-2c0-0.3,0.2-0.5,0.5-0.5h3c0.3,0,0.5,0.2,0.5,0.5C18,22.6,17.1,23.5,16,23.5z M15.1,22
+          c0.2,0.3,0.5,0.5,0.9,0.5s0.7-0.2,0.9-0.5H15.1zM22,20H10c-0.6,0-1-0.4-1-1c0-0.5,0.4-1,1-1s1-0.4,1-0.9v-4.3c0-1.3,0.6-2.6,1.6-3.5c1-1,2.5-1.4,3.9-1.3
+          C19,8.3,21,10.4,21,13v4.1c0,0.5,0.4,0.9,1,0.9s1,0.4,1,1C23,19.6,22.6,20,22,20z M16,9c-1,0-2,0.4-2.8,1.1
+          c-0.8,0.7-1.2,1.7-1.2,2.7v4.3c0,1.1-0.9,1.9-2,1.9l11.6,0c-0.9-0.2-1.6-1-1.6-1.9V13c0-2-1.6-3.8-3.6-4C16.3,9,16.1,9,16,9z"></path>
+                        <path class="icons-default-fill icons-filled" d="M17.5,21h-3c-0.3,0-0.5,0.2-0.5,0.5c0,1.1,0.9,2,2,2s2-0.9,2-2C18,21.2,17.8,21,17.5,21zM22,18c-0.6,0-1-0.4-1-0.9V13c0-2.6-2-4.7-4.5-5c-1.5-0.1-2.9,0.3-3.9,1.3c-1,0.9-1.6,2.2-1.6,3.5v4.3c0,0.5-0.4,0.9-1,0.9
+          s-1,0.4-1,1c0,0.5,0.4,1,1,1h12c0.6,0,1-0.4,1-1C23,18.5,22.6,18,22,18z"></path>
+                      </g>
+                    </svg></ng-include>
+                  <span class="app-bar-text" aria-hidden="true" data-tid="appBarText-Aktivitet">Activity</span>
+                </button>
+              </li>
+              <li class="app-bar-has-left-rail">
+                <button class="app-bar-link app-bar-button">
+                  <ng-include>
+                    <svg viewBox="0 0 40 40" class="app-svg icons-chat">
+                      <g>
+                        <path class="icons-default-fill icons-unfilled"
+                          d="M27.8,29c-0.3,0-0.7-0.2-0.9-0.4l-3.8-2.7c-0.1-0.1-0.1-0.1-0.2-0.1c-0.7,0.1-2,0.1-3.5,0.1c-2.5,0-5.9-0.3-8.1-0.8
+             c-0.8-0.2-1.3-0.9-1.3-1.8V12.7c0-1,0.7-1.7,1.6-1.7h15.5c1,0,1.9,0.8,1.9,1.7v15.1C29,28.3,28.6,29,27.8,29z M23,24.8
+             c0.4,0,0.7,0.2,0.9,0.4l3.8,2.7c0.1,0.1,0.1,0.1,0.2,0.1c0,0,0.1-0.1,0.1-0.2V12.7c0-0.4-0.3-0.7-0.7-0.7H11.7
+             c-0.4,0-0.7,0.3-0.7,0.7v10.6c0,0.4,0.3,0.7,0.7,0.8c2.1,0.5,5.4,0.8,7.8,0.8c1.4,0,2.7-0.1,3.4-0.1C22.9,24.8,22.9,24.8,23,24.8z"></path>
+                        <rect class="icons-default-fill icons-unfilled" x="15" y="16" width="8.5" height="1"></rect>
+                        <rect class="icons-default-fill icons-unfilled" x="15" y="20" width="6" height="1"></rect>
+                        <path class="icons-default-fill icons-filled" d="M27.3,11H11.7c-1,0-1.7,0.8-1.7,1.7v10.6c0,0.9,0.6,1.6,1.4,1.8c2.2,0.5,5.6,0.8,8.1,0.8c1.4,0,2.7-0.1,3.5-0.1
+         c0,0,0.1,0,0.2,0.1l3.8,2.7c0.2,0.3,0.6,0.4,0.9,0.4c0.1,0,0.3,0,0.4-0.1c0.5-0.2,0.7-0.4,0.7-0.9V13C28.9,12.1,28.2,11,27.3,11z
+         M21,21h-6v-1h6V21z M23.5,17H15v-1h8.5V17z"></path>
+                      </g>
+                    </svg>
+                  </ng-include>
+                  <span class="app-bar-text" aria-hidden="true" data-tid="appBarText-Chatt">Chat</span>
+                </button>
+              </li>
+              <li class="app-bar-has-left-rail">
+                <button class="app-bar-link app-bar-button app-bar-selected">
+                  <ng-include>
+                    <svg viewBox="0 0 40 40" class="app-svg icons-teams">
+                      <g>
+                        <path class="icons-default-fill icons-unfilled" d="M13,15c0.6,0,1,0.4,1,1s-0.4,1-1,1s-1-0.4-1-1S12.4,15,13,15 M13,14c-1.1,0-2,0.9-2,2s0.9,2,2,2c1.1,0,2-0.9,2-2
+        S14.1,14,13,14L13,14zM20,14c0.6,0,1,0.4,1,1s-0.4,1-1,1s-1-0.4-1-1S19.4,14,20,14 M20,13c-1.1,0-2,0.9-2,2s0.9,2,2,2s2-0.9,2-2S21.1,13,20,13
+        L20,13zM27,15c0.6,0,1,0.4,1,1s-0.4,1-1,1s-1-0.4-1-1S26.4,15,27,15 M27,14c-1.1,0-2,0.9-2,2s0.9,2,2,2s2-0.9,2-2S28.1,14,27,14
+        L27,14zM23,20v6.2c0,1.2-1.3,1.8-3,1.8s-3-0.6-3-1.8V20H23 M24,19h-1h-6h-1v1v6.2c0,1.7,1.6,2.8,4,2.8s4-1.1,4-2.8V20V19L24,19zM26.2,26h-0.7c-0.3,0-0.5-0.2-0.5-0.5s0.2-0.5,0.5-0.5h0.7c1.4,0,2.8-0.4,2.8-1.4V21h-3.5c-0.3,0-0.5-0.2-0.5-0.5
+        s0.2-0.5,0.5-0.5H30v3.6C30,25.1,28.5,26,26.2,26zM14.5,26h-0.7c-2.4,0-3.8-0.9-3.8-2.4V20h4.5c0.3,0,0.5,0.2,0.5,0.5S14.8,21,14.5,21H11v2.6c0,1.1,1.5,1.4,2.8,1.4h0.7
+        c0.3,0,0.5,0.2,0.5,0.5S14.8,26,14.5,26z"></path>
+                        <path class="icons-default-fill icons-filled"
+                          d="M16,19v7.2c0,1.7,1.6,2.8,4,2.8c2.4,0,4-1.1,4-2.8V19H16zM25,20v6h1.2c2.4,0,3.8-0.9,3.8-2.4V20H25zM10,23.6c0,1.5,1.5,2.4,3.8,2.4H15v-6h-5V23.6z">
+                        </path>
+                        <circle class="icons-default-fill icons-filled" cx="13" cy="16" r="2"></circle>
+                        <circle class="icons-default-fill icons-filled" cx="20" cy="15" r="2"></circle>
+                        <circle class="icons-default-fill icons-filled" cx="27" cy="16" r="2"></circle>
+                      </g>
+                    </svg>
+                  </ng-include>
+                  <span class="app-bar-text" aria-hidden="true" data-tid="appBarText-Team">Team</span>
+                </button>
+              </li>
+              <li class="app-bar-has-left-rail">
+                <button class="app-bar-link app-bar-button">
+                  <ng-include>
+                    <svg viewBox="0 0 32 32" class="app-svg icons-assignments">
+                      <g class="icons-default-fill">
+                        <g class="icons-unfilled">
+                          <path d="M18.4,17.6V20h-4.8v-2.4H18.4 M19.2,16.8h-6.4v4h6.4V16.8L19.2,16.8z"></path>
+                          <g>
+                            <rect x="13.3" y="13.6" width="5.2" height="0.8"></rect>
+                          </g>
+                          <path
+                            d="M18.8,10.1C18.3,8.9,17.2,8,16,8c-1.2,0-2.3,0.9-2.8,2.1c-2.1,0.2-3.7,2-3.7,4.1v7.6c0,1.2,0.9,2.1,2.1,2.1
+		h8.9c1.2,0,2.1-0.9,2.1-2.1v-7.6C22.6,12.1,20.9,10.4,18.8,10.1z M16,8.8c0.8,0,1.5,0.5,1.9,1.3h-3.8C14.5,9.3,15.2,8.8,16,8.8z
+		 M21.8,21.9c0,0.7-0.6,1.3-1.3,1.3h-8.9c-0.7,0-1.3-0.6-1.3-1.3v-7.6c0-1.9,1.5-3.4,3.4-3.4h4.8c1.9,0,3.4,1.5,3.4,3.4V21.9z">
+                          </path>
+                        </g>
+                        <g class="icons-filled">
+                          <rect x="13.6" y="17.6" width="4.8" height="2.4"></rect>
+                          <path d="M18.8,10.1C18.3,8.9,17.2,8,16,8c-1.2,0-2.3,0.9-2.8,2.1c-2.1,0.2-3.7,2-3.7,4.1v7.6c0,1.2,0.9,2.1,2.1,2.1
+		h8.9c1.2,0,2.1-0.9,2.1-2.1v-7.6C22.6,12.1,20.9,10.4,18.8,10.1z M16,8.8c0.8,0,1.5,0.5,1.9,1.3h-3.8C14.5,9.3,15.2,8.8,16,8.8z
+		 M13.3,13.6h5.2v0.8h-5.2V13.6z M19.2,20.8h-6.4v-4h6.4V20.8z"></path>
+                        </g>
+                      </g>
+                    </svg>
+                  </ng-include>
+                  <span class="app-bar-text" aria-hidden="true" data-tid="appBarText-Uppgifter">Assignments</span>
+                </button>
+              </li>
+              <li class="app-bar-has-left-rail">
+                <button class="app-bar-link app-bar-button">
+                  <ng-include>
+                    <svg viewBox="0 0 40 40" class="app-svg icons-calendar">
+                      <g>
+                        <path class="icons-default-fill icons-unfilled"
+                          d="M27.269,13H25V12a.5.5,0,0,0-1,0v1H17V12a.5.5,0,0,0-1,0v1H13.731A1.743,1.743,0,0,0,12,14.75V26.52a1.663,1.663,0,0,0,1.257,1.615A29.537,29.537,0,0,0,20.5,29a29.537,29.537,0,0,0,7.243-.865A1.663,1.663,0,0,0,29,26.52V14.75A1.743,1.743,0,0,0,27.269,13ZM28,26.52a.666.666,0,0,1-.5.646,28.55,28.55,0,0,1-7,.834,28.55,28.55,0,0,1-7-.834.666.666,0,0,1-.5-.646V14.75a.742.742,0,0,1,.731-.75H16v1a.5.5,0,0,0,1,0V14h7v1a.5.5,0,0,0,1,0V14h2.269a.742.742,0,0,1,.731.75Z">
+                        </path>
+                        <rect class="icons-default-fill icons-unfilled" x="15" y="17" width="3" height="3"></rect>
+                        <rect class="icons-default-fill icons-unfilled" x="19" y="17" width="3" height="3"></rect>
+                        <rect class="icons-default-fill icons-unfilled" x="19" y="21" width="3" height="3"></rect>
+                        <rect class="icons-default-fill icons-unfilled" x="15" y="21" width="3" height="3"></rect>
+                        <rect class="icons-default-fill icons-unfilled" x="23" y="17" width="3" height="3"></rect>
+                        <path class="icons-default-fill icons-filled"
+                          d="M27.269,13H25V12a.5.5,0,0,0-1,0v1H17V12a.5.5,0,0,0-1,0v1H13.731A1.743,1.743,0,0,0,12,14.75V26.52a1.663,1.663,0,0,0,1.257,1.615A29.537,29.537,0,0,0,20.5,29a29.537,29.537,0,0,0,7.243-.865A1.663,1.663,0,0,0,29,26.52V14.75A1.743,1.743,0,0,0,27.269,13ZM18,24H15V21h3Zm0-4H15V17h3Zm4,4H19V21h3Zm0-4H19V17h3Zm4,0H23V17h3Z">
+                        </path>
+                      </g>
+                    </svg>
+                  </ng-include>
+                  <span class="app-bar-text" aria-hidden="true" data-tid="appBarText-Kalender">Calender</span>
+                </button>
+              </li>
+              <li class="app-bar-has-left-rail">
+                <button class="app-bar-link app-bar-button">
+                  <ng-include>
+                    <svg viewBox="0 0 32 32" class="app-svg icons-call app-bar-icons-fill-colors" focusable="false">
+                      <g class="icons-default-fill">
+                        <path class="icons-unfilled" d="M19.5,23c-0.1,0-0.3,0-0.4-0.1c-2.6-0.8-4.8-2.4-6.4-4.6l0,0c-1.6-2.2-2.3-4.9-2.1-7.6c0-0.6,0.4-1.1,0.9-1.3l0.8-0.4
+             c0.9-0.4,1.9,0,2.3,0.8l0.3,0.7c0.5,1,0.8,2.5-0.1,3.4l-0.6,0.6c-0.2,0.2-0.2,0.5-0.1,0.7l1.9,2.8c0.1,0.2,0.4,0.3,0.6,0.2l0.7-0.3
+             c1.3-0.5,2.6,0.3,3.3,1.1l0.5,0.5c0.6,0.7,0.6,1.8,0,2.4l-0.6,0.7C20.3,22.9,19.9,23,19.5,23z M13.5,17.8c1.4,2,3.5,3.5,5.8,4.2
+             c0.2,0.1,0.4,0,0.5-0.1l0.6-0.7c0.3-0.3,0.3-0.8,0-1.1L20,19.6c-0.6-0.6-1.4-1.1-2.2-0.8l-0.7,0.3c-0.7,0.3-1.5,0.1-1.9-0.5
+             l-1.9-2.8c-0.4-0.6-0.4-1.4,0.2-1.9l0.5-0.6c0.5-0.6,0.3-1.6-0.1-2.3l-0.3-0.7c-0.2-0.4-0.6-0.5-1-0.4l-0.8,0.4
+             c-0.2,0.1-0.3,0.3-0.3,0.5C11.4,13.4,12.1,15.8,13.5,17.8L13.5,17.8z"></path>
+                        <path class="icons-filled" d="M19.5,23c-0.1,0-0.3,0-0.4-0.1c-2.6-0.8-4.8-2.4-6.4-4.6l0,0c-1.6-2.2-2.3-4.9-2.1-7.6c0-0.6,0.4-1.1,0.9-1.3L12.3,9
+             c0.9-0.4,1.9,0,2.3,0.8l0.3,0.7c0.5,1,0.8,2.5-0.1,3.4l-0.6,0.6C14,14.7,14,15,14.1,15.2L16,18c0.1,0.2,0.4,0.3,0.6,0.2l0.7-0.3
+             c1.3-0.5,2.6,0.3,3.3,1.1l0.5,0.5c0.6,0.7,0.6,1.8,0,2.4l-0.6,0.7C20.3,22.9,19.9,23,19.5,23z"></path>
+                      </g>
+                    </svg>
+                  </ng-include>
+                  <span class="app-bar-text" aria-hidden="true" data-tid="appBarText-Samtal">Calls</span>
+                </button>
+              </li>
+              <li class="app-bar-has-left-rail">
+                <button class="app-bar-link app-bar-button">
+                  <ng-include>
+                    <svg viewBox="0 0 32 32" class="app-svg icons-document app-bar-icons-fill-colors">
+                      <g>
+                        <path class="icons-default-fill icons-unfilled"
+                          d="M20.5,8H15c-0.4006,0-0.7773,0.1562-1.083,0.4634l-3.4775,3.9673  C10.156,12.7139,10,13.0908,10,13.4912V22.5c0,0.8271,0.6729,1.5,1.5,1.5h9c0.8271,0,1.5-0.6729,1.5-1.5v-13  C22,8.6729,21.3271,8,20.5,8z M13.9863,9.8996V13h-2.7177L13.9863,9.8996z M21,22.5c0,0.2759-0.2244,0.5-0.5,0.5h-9  c-0.2756,0-0.5-0.2241-0.5-0.5V14h3.9863V9.0027C14.991,9.0026,14.9953,9,15,9h5.5C20.7756,9,21,9.2241,21,9.5V22.5z">
+                        </path>
+                        <path class="icons-default-fill icons-filled"
+                          d="M20.5,8H15c-0.0046,0-0.009,0.0013-0.0137,0.0013V14H10v8.5c0,0.8271,0.6729,1.5,1.5,1.5h9  c0.8271,0,1.5-0.6729,1.5-1.5v-13C22,8.6729,21.3271,8,20.5,8z">
+                        </path>
+                        <path class="icons-default-fill icons-filled"
+                          d="M13.9863,13V8.4055c-0.0226,0.0205-0.0474,0.0359-0.0693,0.0579l-3.4775,3.9673  c-0.1628,0.1626-0.2779,0.3582-0.3512,0.5693H13.9863z">
+                        </path>
+                        <circle class="circle-border download document-fill download-circle-visible" cx="21.5" cy="21.5"
+                          r="6"></circle>
+                        <circle class="icons-white-fill download download-circle download-circle-visible" cx="21.5"
+                          cy="21.5" r="5"></circle>
+                        <path class="download download-arrow document-fill"
+                          d="M23.9749,21.8535c-0.1953-0.1953-0.5118-0.1953-0.7071,0L22,23.1213V18.75  c0-0.2762-0.2239-0.5-0.5-0.5s-0.5,0.2238-0.5,0.5v4.3713l-1.2678-1.2678c-0.1953-0.1953-0.5118-0.1953-0.7071,0  c-0.1953,0.1953-0.1953,0.5118,0,0.7072l2.1213,2.1213c0.1953,0.1953,0.5118,0.1953,0.7072,0l2.1213-2.1213  C24.1702,22.3654,24.1702,22.0488,23.9749,21.8535z">
+                        </path>
+                        <path class="icons-default-fill icons-white-fill download download-checkmark"
+                          d="M24.5052,19.3787c-0.1953-0.1953-0.5118-0.1953-0.7071,0l-3.1819,3.1819l-1.4142-1.4142  c-0.1953-0.1953-0.5118-0.1953-0.7071,0c-0.1953,0.1953-0.1953,0.5118,0,0.7072l1.7678,1.7678c0.1953,0.1953,0.5118,0.1953,0.7071,0  l3.5355-3.5355C24.7004,19.8905,24.7004,19.5739,24.5052,19.3787z">
+                        </path>
+                      </g>
+                    </svg>
+                  </ng-include>
+                  <span class="app-bar-text" aria-hidden="true" data-tid="appBarText-Filer">Files</span>
+                </button>
+              </li>
+              <li role="presentation" class="spacer"></li>
+              <li class="app-list-item">
+                <discover-apps-button class="ts-sym app-bar-link">
+                    <ng-include src="&#39;svg/icons-apps.html&#39;">
+                      <svg viewBox="0 0 32 32" class="app-svg icons-apps app-bar-extra-icons-fill-colors">
+                        <g class="icons-default-fill">
+                          <path class="icons-unfilled"
+                            d="M 24.019 12.5 c 0 -0.4 -0.156 -0.777 -0.439 -1.061 L 20.561 8.42 c -0.584 -0.585 -1.537 -0.585 -2.121 0 l -2.543 2.543 C 15.68 10.401 15.138 10 14.5 10 h -4 C 9.673 10 9 10.672 9 11.5 V 16 v 5.5 c 0 0.827 0.673 1.5 1.5 1.5 H 16 h 4.5 c 0.827 0 1.5 -0.673 1.5 -1.5 v -4 c 0 -0.638 -0.402 -1.18 -0.964 -1.397 l 2.543 -2.543 C 23.862 13.277 24.019 12.9 24.019 12.5 Z M 16 14.139 L 17.86 16 H 16 V 14.139 Z M 10 11.5 c 0 -0.276 0.224 -0.5 0.5 -0.5 h 4 c 0.276 0 0.5 0.224 0.5 0.5 V 16 h -5 V 11.5 Z M 10.5 22 c -0.276 0 -0.5 -0.225 -0.5 -0.5 V 17 h 5 v 5 H 10.5 Z M 21 21.5 c 0 0.275 -0.225 0.5 -0.5 0.5 H 16 v -5 h 4.5 c 0.275 0 0.5 0.225 0.5 0.5 V 21.5 Z M 22.872 12.853 l -3.019 3.02 c -0.073 0.073 -0.164 0.109 -0.258 0.128 h -0.191 c -0.094 -0.018 -0.185 -0.055 -0.258 -0.128 l -3.019 -3.02 c -0.071 -0.071 -0.109 -0.162 -0.128 -0.259 v -0.188 c 0.019 -0.097 0.057 -0.188 0.128 -0.259 l 3.019 -3.019 c 0.098 -0.098 0.226 -0.146 0.354 -0.146 s 0.256 0.048 0.354 0.146 l 3.019 3.019 c 0.095 0.095 0.146 0.22 0.146 0.354 C 23.019 12.633 22.967 12.758 22.872 12.853 Z">
+                          </path>
+                          <path class="icons-filled"
+                            d="M 24.019 12.5 c 0 -0.4 -0.156 -0.777 -0.439 -1.061 L 20.561 8.42 c -0.584 -0.585 -1.537 -0.585 -2.121 0 l -2.543 2.543 C 15.68 10.401 15.138 10 14.5 10 h -4 C 9.673 10 9 10.672 9 11.5 V 16 v 5.5 c 0 0.827 0.673 1.5 1.5 1.5 H 16 h 4.5 c 0.827 0 1.5 -0.673 1.5 -1.5 v -4 c 0 -0.638 -0.402 -1.18 -0.964 -1.397 l 2.543 -2.543 C 23.862 13.277 24.019 12.9 24.019 12.5 Z M 16 14.139 L 17.86 16 H 16 V 14.139 Z M 10 11.5 c 0 -0.276 0.224 -0.5 0.5 -0.5 h 4 c 0.276 0 0.5 0.224 0.5 0.5 V 16 h -5 V 11.5 Z M 10.5 22 c -0.276 0 -0.5 -0.225 -0.5 -0.5 V 17 h 5 v 5 H 10.5 Z M 21 21.5 c 0 0.275 -0.225 0.5 -0.5 0.5 H 16 v -5 h 4.5 c 0.275 0 0.5 0.225 0.5 0.5 V 21.5 Z">
+                          </path>
+                        </g>
+                      </svg>
+                    </ng-include>
+                    <span class="app-bar-text">Apps</span>
+                  </button></discover-apps-button>
+              </li>
+              <li class="app-list-item">
+                <discover-apps-button class="ts-sym app-bar-link">
+                    <ng-include src="&#39;svg/icons-apps.html&#39;">
+                      <svg class="app-svg icons-faq app-bar-extra-icons-fill-colors" viewBox="0 0 32 32">
+                        <g>
+                          <path class="icons-default-fill icons-unfilled" d="M16,8c-4.4,0-8,3.6-8,8s3.6,8,8,8s8-3.6,8-8S20.4,8,16,8z M16,23c-3.9,0-7-3.2-7-7s3.2-7,7-7s7,3.2,7,7S19.9,23,16,23zM17.7,11.6c-0.2-0.2-0.5-0.3-0.8-0.4c-0.3-0.1-0.6-0.1-1-0.1c-0.7,0-1.4,0.2-2.1,0.6c-0.2,0.1-0.3,0.4-0.1,0.6
+             c0.1,0.2,0.4,0.3,0.6,0.1c0.5-0.3,1.1-0.5,1.6-0.5c0.3,0,0.5,0,0.7,0.1c0.2,0.1,0.4,0.2,0.6,0.3c0.1,0.1,0.3,0.3,0.3,0.4
+             c0.1,0.2,0.1,0.4,0.1,0.6c0,0.2,0,0.4-0.1,0.6c-0.1,0.2-0.2,0.4-0.3,0.5c-0.1,0.2-0.3,0.3-0.5,0.5c-0.2,0.2-0.4,0.3-0.5,0.5
+             c-0.2,0.2-0.3,0.4-0.4,0.6c-0.1,0.2-0.2,0.5-0.2,0.8v0.7c0,0.2,0.2,0.4,0.4,0.4s0.4-0.2,0.4-0.4v-0.7c0-0.1,0-0.3,0.1-0.4
+             c0.1-0.1,0.2-0.3,0.3-0.4c0.1-0.2,0.3-0.3,0.5-0.5c0.2-0.2,0.4-0.4,0.6-0.6c0.2-0.2,0.3-0.5,0.4-0.7c0.1-0.3,0.2-0.6,0.2-1
+             c0-0.4-0.1-0.7-0.2-1C18.1,12,17.9,11.8,17.7,11.6z"></path>
+                          <circle class="icons-default-fill icons-unfilled" cx="16" cy="20.3" r="0.7"></circle>
+                          <path class="icons-default-fill icons-filled" d="M16,8c-4.4,0-8,3.6-8,8s3.6,8,8,8s8-3.6,8-8S20.4,8,16,8z M16,21c-0.6,0-1-0.4-1-1c0-0.6,0.4-1,1-1c0.6,0,1,0.4,1,1
+        C17,20.6,16.6,21,16,21z M18.5,14.6c-0.1,0.3-0.3,0.5-0.5,0.8c-0.2,0.2-0.4,0.4-0.5,0.6c-0.2,0.1-0.3,0.3-0.4,0.4
+        c-0.1,0.1-0.2,0.2-0.2,0.3c0,0,0,0.1,0,0.1v0.6c0,0.4-0.4,0.8-0.8,0.8c-0.4,0-0.8-0.4-0.8-0.8v-0.6c0-0.3,0.1-0.7,0.3-0.9
+        c0.1-0.2,0.3-0.4,0.5-0.6c0.2-0.2,0.3-0.3,0.5-0.5c0.1-0.1,0.3-0.3,0.4-0.4c0.1-0.1,0.2-0.3,0.2-0.4c0-0.1,0.1-0.2,0.1-0.4
+        c0-0.2,0-0.3-0.1-0.4c-0.1-0.1-0.1-0.2-0.2-0.3c-0.1-0.1-0.2-0.1-0.4-0.2c-0.2,0-0.4-0.1-0.6-0.1c-0.4,0-0.9,0.1-1.3,0.4
+        c-0.4,0.2-0.9,0.1-1.1-0.3c-0.2-0.4-0.1-0.9,0.3-1.1c0.7-0.4,1.4-0.6,2.2-0.6c0.4,0,0.7,0,1,0.1c0.3,0.1,0.6,0.3,0.9,0.5
+        c0.3,0.2,0.5,0.5,0.7,0.8c0.2,0.3,0.2,0.7,0.2,1.1C18.7,13.9,18.6,14.3,18.5,14.6z"></path>
+                        </g>
+                      </svg>
+                    </ng-include>
+                    <span class="app-bar-text">Help</span>
+                  </button></discover-apps-button>
+              </li>
+            </ul>
+            <div class="tse-scrollbar simple-scrollbar">
+              <div class="drag-handle handle-hidden"></div>
+            </div>
+          </nav>
+        </app-bar>
+        <div class="ts-left-rail-wrapper ts-main-flex app-full-viewport-height pull-left left-rail-z-index">
+          <left-rail class="ts-left-rail app-rail-common left-rail-header-v2-common">
+            <div class="left-rail-header-v2">
+              <div>
+                <school-app-left-rail class="active-rail">
+                  <single-team-channel-list>
+                    <div class="single-team-channel-list">
+                      <school-app-back-button class="school-app-back-button ts-sym app-icons-fill-hover app-icons-fill-focus button-command focus-round-border">
+                          <ng-include class="back-button-sym">
+                            <svg role="presentation" class="app-svg icons-chevron-left icons-rtl-flip">
+                              <g class="icons-default-fill">
+                                <path class="icons-unfilled"
+                                  d="M19,22.97c0,0.14-0.05,0.25-0.15,0.35c-0.1,0.1-0.22,0.15-0.35,0.15c-0.14,0-0.25-0.05-0.35-0.15l-7-7 c-0.1-0.1-0.15-0.22-0.15-0.35c0-0.14,0.05-0.25,0.15-0.35l7-7c0.1-0.1,0.22-0.15,0.35-0.15c0.13,0,0.25,0.05,0.35,0.15 C18.95,8.72,19,8.83,19,8.97c0,0.14-0.05,0.25-0.15,0.35l-6.64,6.65l6.64,6.65C18.95,22.72,19,22.83,19,22.97z">
+                                </path>
+                                <path class="icons-filled"
+                                  d="M19.5,8.97c0,0.14-0.03,0.27-0.07,0.39c-0.05,0.12-0.12,0.23-0.21,0.32l-6.3,6.29l6.3,6.29c0.09,0.09,0.17,0.2,0.21,0.32 c0.05,0.12,0.07,0.26,0.07,0.39c0,0.14-0.03,0.26-0.08,0.38c-0.05,0.12-0.13,0.23-0.22,0.32c-0.09,0.09-0.2,0.16-0.32,0.22 c-0.12,0.05-0.25,0.08-0.38,0.08c-0.28,0-0.52-0.1-0.71-0.29l-7-7c-0.19-0.19-0.29-0.43-0.29-0.71s0.1-0.52,0.29-0.71l7-7 c0.19-0.19,0.43-0.29,0.71-0.29c0.13,0,0.26,0.03,0.38,0.08C19,8.11,19.11,8.18,19.2,8.27c0.09,0.09,0.16,0.2,0.22,0.32 C19.47,8.71,19.5,8.84,19.5,8.97z">
+                                </path>
+                              </g>
+                            </svg>
+                          </ng-include>
+                          <span class="app-font-title2-semilight back-button-text">
+                            <a href="index.html">Subreddits</a>
+                          </span>
+                        </button>
+                      </school-app-back-button>
+                      <div class="ts-channel-list ts-left-rail-tree" data-tid="course">
+                        <div class="app-left-rail-width">
+                          <div class="team-picture">
+                            <profile-picture class="school-app-team-avatar">
+                              <img class="team-icon" src="./styles/teamicon" style="object-fit: cover;">
+                            </profile-picture>
+                          </div>
+                          <div class="school-app-team-title">
+                            <span class="app-font-title2-bold title-text single-line-truncation">
+                              <p id="column_title"></p>
+                            </span> 
+                            <button class="ts-sym team-more-btn icons-more app-icons-fill-hover inset-border inset-border-round inset-border-themed">
+                                <use xlink:href="#icons-more" href="#icons-more"></use>
+                              </svg> 
+                              <svg class="app-svg icons-filled icons-default-fill">
+                                <use xlink:href="#icons-more-filled" href="#icons-more-filled"></use>
+                              </svg>
+                            </button>
+                          </div>
+                          <div simple-scrollbar="" enable-dynamic-adjusting-scrollbar="true" class="simple-scrollbar">
+                            <ul class="school-app-team-channel" acc-role-dom="list" kb-list="" role="listbox"
+                              id="submission_title_list" style="overflow-y:auto;height:95%;">
+
+                            </ul>
+                            <div class="tse-scrollbar simple-scrollbar">
+                              <div class="drag-handle handle-hidden"></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </single-team-channel-list>
+                </school-app-left-rail>
+              </div>
+            </div>
+          </left-rail>
+        </div>
+      </div>
+      <div class="ts-middle ts-main-flex">
+        <div class="flex-fill" noanimation="true">
+          <middle-messages-stripe class="flex-fill">
+            <div class="ts-middle-pane flex-fill">
+              <messages-header class="messages-header flex-fill">
+                <div class="ts-messages-header messages-header-v2">
+                  <div class="app-messages-header ts-section-divider">
+                    <ng-include>
+                      <div class="ts-title-bar ts-title-bar-team-header">
+                        <div class="team-information">
+                          <div class="team-text-info override-flex">
+                            <div class="team-text-info-inner-wrapper">
+                              <div class="ts-title-bar-icon">
+                                <profile-picture>
+                                  <img class="team-icon"src="./styles/teamicon" style="object-fit: cover;">
+                                </profile-picture>
+                              </div>
+                              <div class="team-info-container">
+                                <div class="team-channel-text-container">
+                                  <h2 class="ts-title channel-name" id="header_title">Something went wrong...</h2>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <ng-include>
+                            <div class="ts-tab-bar-wrapper">
+                              <ul class="app-tabs" dnd-list="mh.tabs">
+                                <li>
+                                  <div class="btn-group app-tabs-list-item">
+                                    <a class="btn btn-default app-tabs-selected">
+                                      <span class="tab-btn-container">
+                                        <span class="tab-display-name">Posts</span>
+                                      </span></a>
+                                  </div>
+                                </li>
+                                <li>
+                                  <div class="btn-group app-tabs-list-item">
+                                    <a class="btn btn-default">
+                                      <span class="tab-btn-container">
+                                        <span class="tab-display-name">Assignments</span>
+                                      </span></a>
+                                  </div>
+                                </li>
+                                <!---->
+                                <li>
+                                  <div class="btn-group app-tabs-list-item">
+                                    <a class="btn btn-default">
+                                      <span class="tab-btn-container">
+                                        <span class="tab-display-name">General</span>
+                                      </span></a>
+                                  </div>
+                                </li>
+                                <li>
+                                  <div class="btn btn-default" simple-focus="::mh.setHighlight($event)">
+                                      <span class="tab-btn-container">
+                                        <span class="tab-display-name">Chat</span>
+                                      </span></a>
+                                  </div>
+                                </li>
+                              </ul>
+                            </div>
+                          </ng-include>
+                        </div>
+                      </div>
+                    </ng-include>
+                  </div>
+                </div>
+                <div class="ts-tab-content flex-fill">
+                  <div class="ts-embedded-container flex-fill">
+                    <message-pane class="content-child flex-fill" context="context" dynamic-context="dynamicContext">
+                      <div class="message-pane flex-fill with-chat-bubbles new-typing-indicator" role="main"
+                        aria-label="TES V180S, Allmänt kanalinnehåll">
+                        <div class="ts-middle-messages-container flex-fill">
+                          <div class="ts-middle-messages-body flex-fill">
+                            <div class="ts-message-content flex-fill" acc-role-dom="tab-handler-message-list">
+                              
+                              <message-list class="flex-fill message-list-common smooth-highlight">
+                                <div class="flex-fill">
+                                  <virtual-repeat class="ts-message-list no-animation simple-scrollbar not-at-top overflow-visible stability not-at-bottom">
+                                    <div class="list-wrap list-wrap-v3 ts-message-list-container" id="submission_comments">
+                                      <!--COMMENTS-->
+                                      <div class="vr-padding-v3 vr-after top"></div>
+
+                                    </div>
+                                  </virtual-repeat>
+                                  <div class="tse-scrollbar simple-scrollbar overflowed">
+                                    <div class="drag-handle handle-hiding" style="top: 573px; height: 96px;"></div>
+                                  </div>
+                                </div>
+                              </message-list>
+                            </div>
+                          </div>
+                        </div>
+                        
+
+                        <div class="ts-add-message ts-add-message-avatar-off is-not-chat not-at-bottom">
+                          <new-message class="chat-style">
+                            <div class="ts-new-message ts-new-message-normal ts-border-newcompose  message-unimportant">
+                              <div class="ts-new-message-footer new-message-common rich-style-enabled">
+                                <form novalidate="" class="ng-pristine ng-valid">
+                                  <div class="ts-new-message-footer-content clearfix new-chicklet ts-expand-height">
+                                    <div class="ts-message-editor ts-collapsed ts-post-toolbar">
+                                      <div class="ts-editor-section">
+                                        <div class="ts-compose-left-column">
+                                          <div class="ts-edit-box">
+                                            <div class="ts-text-watermark">
+                                              Start a new conversation
+                                            </div>
+                                            <textarea class="ts-textarea-border ts-textarea-normal ckeditor-anchor" style="visibility: hidden; display: none;">
+                                            </textarea>
+                                            <div class="cke_85 cke cke_reset cke_chrome cke_editor_8927f98a-915b-4331-802e-7cddc251505a cke_ltr cke_browser_webkit" style="width: 100%;">
+                                              <div class="cke_inner cke_reset" role="presentation">
+                                                <span class="cke_top cke_reset_all"></span></span>
+                                                <div class="cke_contents cke_reset" style="height: 33px;">
+                                                  <div class="cke_wysiwyg_div cke_reset cke_enable_context_menu cke_editable cke_editable_themed cke_contents_ltr cke_show_borders">
+                                                    <div><br></div>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div class="ts-extensions ts-full-width">
+                                    </div>
+                                  </div>
+                                </form>
+                              </div>
+                              <div class="extension-icons-container new-message-common compose-stripe">
+                                <div class="clear-inline-block-padding compose-stripe">
+                                  <div class="extension-sub-icons compose-stripe">
+                                    <div title="Format">
+                                      <button class="extension-icon-button ts-sym app-icons-fill-hover app-icons-fill-focus inset-border inset-border-round inset-border-themed kb-active">
+                                        <svg class="app-svg icons-format">
+                                          <g class="icons-default-fill">
+                                            <path class="icons-unfilled" d="M15.7022,19.7271l0.7853-0.7853L12.9724,8.8359c-0.0698-0.2012-0.2593-0.3359-0.4722-0.3359s-0.4023,0.1348-0.4722,0.3359
+          l-4,11.4999c-0.0908,0.2607,0.0471,0.5454,0.3079,0.6362c0.262,0.0918,0.5459-0.0474,0.6365-0.3081l1.2745-3.664h4.5066
+          L15.7022,19.7271z M10.5947,15.9999l1.9055-5.478l1.9055,5.478H10.5947z
+          M23.5397,15.4603c-0.6143-0.6143-1.6147-0.6143-2.229,0l-4.5653,4.5653c-0.9816,0.1267-1.7452,0.9585-1.7452,1.9742
+          c0,0.5513-0.4485,1-1,1h-2.5c-0.2761,0-0.5,0.2236-0.5,0.5s0.2239,0.5,0.5,0.5h5.5c1.0156,0,1.8475-0.7635,1.9742-1.7452
+          l4.5653-4.5653c0.2969-0.2969,0.4604-0.6924,0.4604-1.1147C24.0001,16.1527,23.8365,15.7572,23.5397,15.4603z M17.0002,22.9998
+          H15.722c0.1722-0.2953,0.2782-0.6341,0.2782-1c0-0.5513,0.4485-1,1-1s1,0.4487,1,1S17.5517,22.9998,17.0002,22.9998z
+          M22.8327,16.9823l-4.0779,4.0779c-0.1863-0.3463-0.4687-0.6286-0.815-0.8149l4.0779-4.0779c0.2246-0.2241,0.5903-0.2246,0.8149,0
+          c0.1082,0.1079,0.1675,0.2529,0.1675,0.4072C23.0001,16.7294,22.9408,16.8744,22.8327,16.9823z"></path>
+                                            <path class="icons-filled" d="M15.702,19.7271l0.7853-0.7853L12.9723,8.8359c-0.0698-0.2012-0.2593-0.3359-0.4722-0.3359s-0.4023,0.1348-0.4722,0.3359
+	        l-4,11.4999c-0.0908,0.2607,0.0471,0.5454,0.3079,0.6362c0.262,0.0918,0.5459-0.0474,0.6365-0.3081l1.2745-3.664h4.5066
+	        L15.702,19.7271z M10.5946,15.9999l1.9055-5.478l1.9055,5.478H10.5946z
+          M23.5396,15.4603c-0.6143-0.6143-1.6147-0.6143-2.229,0l-3.5767,3.5767c1.0954,0.2715,1.9574,1.1336,2.229,2.229
+	        l3.5767-3.5767C23.8364,17.3924,24,16.9969,24,16.5746C24,16.1527,23.8364,15.7572,23.5396,15.4603z
+          M17.0001,19.9998c-1.1028,0-2,0.897-2,2c0,0.5513-0.4485,1-1,1h-2.5c-0.2761,0-0.5,0.2236-0.5,0.5s0.2239,0.5,0.5,0.5h5.5
+	        c1.1028,0,2-0.897,2-2S18.1028,19.9998,17.0001,19.9998z"></path>
+                                          </g>
+                                        </svg>
+                                      </button>
+                                    </div>
+                                    <button class="ts-sym icons-attachment app-icons-fill-hover app-icons-fill-focus inset-border inset-border-round inset-border-themed">
+                                      <svg class="app-svg icons-attachment">
+                                        <g class="icons-default-fill">
+                                          <path class="icons-unfilled" d="M20.7927,16.8364L16.021,21.554c-0.6099,0.6099-1.4224,0.9458-2.2876,0.9458s-1.6777-0.3359-2.2876-0.9458
+	           c-1.2612-1.2615-1.2612-3.3137,0.0098-4.5852l6.7021-6.96c0.6567-0.6562,1.8059-0.6567,2.4622,0
+	           c0.6787,0.679,0.6787,1.7832-0.0154,2.478l-5.7725,6.03c-0.1973,0.1931-0.2009,0.5098-0.0081,0.7073
+	           c0.1936,0.1973,0.5098,0.2012,0.7073,0.0081l5.7957-6.0542c1.0688-1.0686,1.0688-2.8076,0-3.8762
+	           c-0.5168-0.5171-1.2053-0.802-1.938-0.802s-1.4211,0.2849-1.9382,0.802l-6.7119,6.97c-1.6514,1.6511-1.6514,4.3381,0,5.9893
+	           c0.8259,0.8259,1.9106,1.2388,2.9954,1.2388c1.084,0,2.1675-0.4124,2.9919-1.2368l4.7698-4.7156
+	           c0.1963-0.1941,0.1982-0.5107,0.0039-0.707C21.3059,16.644,20.9893,16.6418,20.7927,16.8364z"></path>
+                                          <path class="icons-filled" d="M20.4412,16.4808l-4.7737,4.7197c-1.0664,1.0664-2.8018,1.0664-3.8682,0s-1.0664-2.8018,0.0195-3.8882l6.6924-6.95
+	           c0.4678-0.4678,1.2874-0.4678,1.7551,0c0.4839,0.4839,0.4839,1.2712-0.0305,1.7869l-5.7532,6.0103
+	           c-0.395,0.386-0.4021,1.019-0.0161,1.4141s1.019,0.4021,1.4141,0.0161c0,0,2.4329-2.3787,2.4453-2.3923l3.3545-3.6658
+	           c1.2637-1.2637,1.2637-3.3196,0.0002-4.5833c-0.6116-0.6116-1.4255-0.9485-2.2917-0.9485s-1.6802,0.3369-2.2917,0.9485l-6.7119,6.97
+	           c-1.8462,1.8462-1.8462,4.8501,0,6.6963c0.9236,0.9238,2.1367,1.3853,3.3496,1.3853c1.2114,0,2.4221-0.4607,3.3428-1.3811
+	           l4.7698-4.7156c0.3926-0.3884,0.3962-1.0215,0.0081-1.4143C21.4673,16.0966,20.8342,16.0927,20.4412,16.4808z">
+                                          </path>
+                                        </g>
+                                      </svg>
+                                    </button>
+                                    <input-extension-emoji class="compose-stripe-directive">
+                                      <button class="ts-sym pull-right icons-emoji app-icons-fill-focus app-icons-fill-hover inset-border inset-border-round inset-border-themed shortcuts-funstuff">
+                                        <ng-include>
+                                          <svg class="app-svg icons-emoji">
+                                            <g class="icons-default-fill">
+                                              <g class="icons-unfilled">
+                                                <path
+                                                  d="M16,24c-4.4,0-8-3.6-8-8s3.6-8,8-8s8,3.6,8,8S20.4,24,16,24z M16,9c-3.9,0-7,3.1-7,7s3.1,7,7,7s7-3.1,7-7S19.9,9,16,9zM16,20.5c-1.4,0-2.8-0.5-3.9-1.6l0.7-0.7c1.8,1.8,4.6,1.8,6.4,0l0.7,0.7C18.9,19.9,17.4,20.5,16,20.5z">
+                                                </path>
+                                                <circle cx="13" cy="15" r="1"></circle>
+                                                <circle cx="19" cy="15" r="1"></circle>
+                                              </g>
+                                              <path class="icons-filled"
+                                                d="M24,16.734a7.069,7.069,0,0,1-.262,1.926A7.464,7.464,0,0,1,23,20.395,7.285,7.285,0,0,1,20.395,23a7.381,7.381,0,0,1-1.734.734A7.036,7.036,0,0,1,16.734,24H16.266a7.031,7.031,0,0,1-1.926-.262A7.381,7.381,0,0,1,12.605,23,7.285,7.285,0,0,1,10,20.395a7.4,7.4,0,0,1-.734-1.734A7.031,7.031,0,0,1,9,16.734V16.266a7.033,7.033,0,0,1,.262-1.926A7.4,7.4,0,0,1,10,12.605,7.285,7.285,0,0,1,12.605,10a7.443,7.443,0,0,1,1.734-.734A7.05,7.05,0,0,1,16.266,9h0.469a7.055,7.055,0,0,1,1.926.262A7.443,7.443,0,0,1,20.395,10,7.285,7.285,0,0,1,23,12.605a7.464,7.464,0,0,1,.734,1.734A7.071,7.071,0,0,1,24,16.266v0.469Zm-3.867,2.438-0.7-.7a4.154,4.154,0,0,1-5.859,0l-0.7.7a5.1,5.1,0,0,0,1.664,1.113,5.109,5.109,0,0,0,3.938,0A5.114,5.114,0,0,0,20.133,19.172ZM15,15a0.984,0.984,0,0,0-.078-0.387,1,1,0,0,0-.535-0.535,1,1,0,0,0-.773,0,1,1,0,0,0-.535.535,1,1,0,0,0,0,.773,1,1,0,0,0,.535.535,1,1,0,0,0,.773,0,1,1,0,0,0,.535-0.535A0.981,0.981,0,0,0,15,15Zm5,0a0.984,0.984,0,0,0-.078-0.387,1,1,0,0,0-.535-0.535,1,1,0,0,0-.773,0,1,1,0,0,0-.535.535,1,1,0,0,0,0,.773,1,1,0,0,0,.535.535,1,1,0,0,0,.773,0,1,1,0,0,0,.535-0.535A0.981,0.981,0,0,0,20,15Z">
+                                              </path>
+                                            </g>
+                                          </svg>
+                                        </ng-include>
+                                      </button>
+                                    </input-extension-emoji>
+                                    <input-extension-giphy class="compose-stripe-directive">
+                                      <button class="ts-sym pull-right icons-emoji app-icons-fill-focus app-icons-fill-hover inset-border inset-border-round inset-border-themed shortcuts-funstuff">
+                                        <ng-include>
+                                          <svg class="app-svg icons-emoji">
+                                            <g class="icons-default-fill">
+                                              <g class="icons-unfilled">
+                                                <path
+                                                  d="M14.5,19h-1.7393c-1.0862,0-1.9668-0.8805-1.9668-1.9668v-1.858c0-1.2014,0.9739-2.1753,2.1753-2.1753H14.5v1h-1.5274
+               c-0.651,0-1.1787,0.5277-1.1787,1.1787v1.8546c0,0.5345,0.4333,0.9668,0.9677,0.9668H13.5v-1.5H13v-1h1.5V19z">
+                                                </path>
+                                                <rect x="16.0029" y="13" width="0.9971" height="6"></rect>
+                                                <polygon
+                                                  points="21.3467,14 21.3467,13 18.5,13 18.5,19 19.5029,19 19.5029,16.4824 21,16.4824 21,15.4824 19.5029,15.4824   19.5029,14 ">
+                                                </polygon>
+                                                <path d="M16,24c-2.0898,0-4.123-0.2109-6.043-0.6279C8.8232,23.125,8,22.0967,8,20.9258v-9.8521C8,9.9028,8.8232,8.874,9.957,8.6274
+               c3.8418-0.833,8.2441-0.833,12.0859,0C23.1768,8.874,24,9.9028,24,11.0737v9.8521c0,1.1709-0.8232,2.1992-1.957,2.4463
+               C20.123,23.7891,18.0898,24,16,24z M16,9.0005c-2.0176,0-3.9795,0.2036-5.8301,0.6055C9.4922,9.7529,9,10.3701,9,11.0737v9.8521
+               c0,0.7031,0.4922,1.3203,1.1699,1.4678c3.6992,0.8047,7.9609,0.8047,11.6602,0C22.5078,22.2461,23,21.6289,23,20.9258v-9.8521
+               c0-0.7036-0.4922-1.3208-1.1699-1.4678C19.9795,9.2041,18.0176,9.0005,16,9.0005z"></path>
+                                              </g>
+                                              <path class="icons-filled" d="M22.043,8.6274c-3.8418-0.833-8.2441-0.833-12.0859,0C8.8232,8.874,8,9.9028,8,11.0737v9.8521
+	           c0,1.1709,0.8232,2.1992,1.957,2.4463C11.877,23.7891,13.9102,24,16,24s4.123-0.2109,6.043-0.6279
+	           C23.1768,23.125,24,22.0967,24,20.9258v-9.8521C24,9.9028,23.1768,8.874,22.043,8.6274z M14.5,14h-1.5274
+	           c-0.6509,0-1.1786,0.5277-1.1786,1.1786v1.8546c0,0.5345,0.4333,0.9668,0.9677,0.9668H13.5v-1.5H13v-1h1.5V19h-1.7393
+	           c-1.0862,0-1.9667-0.8806-1.9667-1.9668v-1.858c0-1.2014,0.9739-2.1752,2.1752-2.1752H14.5V14z M17,19h-0.9971v-6H17V19z
+	           M21.3467,14h-1.8438v1.4824H21v1h-1.4971V19H18.5v-6h2.8467V14z"></path>
+                                            </g>
+                                          </svg>
+                                        </ng-include>
+                                      </button>
+                                    </input-extension-giphy>
+                                    <input-extension-stickers class="compose-stripe-directive">
+                                      <button class="ts-sym pull-right icons-emoji app-icons-fill-focus app-icons-fill-hover inset-border inset-border-round inset-border-themed shortcuts-funstuff">
+                                        <ng-include>
+                                          <svg class="app-svg icons-emoji">
+                                            <g class="icons-default-fill">
+                                              <g class="icons-unfilled">
+                                                <path d="M14.793,14.011c0,0.1045-0.0225,0.2046-0.0664,0.3008c-0.0449,0.0967-0.1035,0.1812-0.1758,0.2539
+	             c-0.0732,0.0732-0.1582,0.1318-0.2539,0.1758c-0.0967,0.0444-0.1973,0.0664-0.3008,0.0664c-0.1045,0-0.2051-0.022-0.3008-0.0664
+	             c-0.0967-0.0439-0.1816-0.1025-0.2539-0.1758c-0.0732-0.0728-0.1318-0.1572-0.1758-0.2539
+	             c-0.0449-0.0962-0.0664-0.1963-0.0664-0.3008c0-0.104,0.0215-0.2041,0.0664-0.3008c0.0439-0.0962,0.1025-0.1821,0.1758-0.2578
+	             c0.0723-0.0752,0.1572-0.1353,0.2539-0.1797c0.0957-0.0439,0.1963-0.0664,0.3008-0.0664c0.1035,0,0.2041,0.0225,0.3008,0.0664
+	             c0.0957,0.0444,0.1807,0.1045,0.2539,0.1797c0.0723,0.0757,0.1309,0.1616,0.1758,0.2578
+	             C14.7705,13.8069,14.793,13.907,14.793,14.011z"></path>
+                                                <path d="M18.793,14.011c0,0.1045-0.0225,0.2046-0.0664,0.3008c-0.0439,0.0967-0.1025,0.1812-0.1758,0.2539
+	             c-0.0732,0.0732-0.1572,0.1318-0.2539,0.1758c-0.0967,0.0444-0.1963,0.0664-0.3008,0.0664s-0.2041-0.022-0.3008-0.0664
+	             c-0.0967-0.0439-0.1807-0.1025-0.2539-0.1758c-0.0732-0.0728-0.1318-0.1572-0.1758-0.2539
+	             c-0.0439-0.0962-0.0664-0.1963-0.0664-0.3008c0-0.104,0.0225-0.2041,0.0664-0.3008c0.0439-0.0962,0.1025-0.1821,0.1758-0.2578
+	             c0.0732-0.0752,0.1572-0.1353,0.2539-0.1797c0.0967-0.0439,0.1963-0.0664,0.3008-0.0664s0.2041,0.0225,0.3008,0.0664
+	             c0.0967,0.0444,0.1807,0.1045,0.2539,0.1797c0.0732,0.0757,0.1318,0.1616,0.1758,0.2578
+	             C18.7705,13.8069,18.793,13.907,18.793,14.011z"></path>
+                                                <path d="M21.5,9h-11C9.6729,9,9,9.6729,9,10.5v11c0,0.8271,0.6729,1.5,1.5,1.5h6.5859c0.3945,0,0.7812-0.1602,1.0605-0.4395
+	             l4.4141-4.4141C22.8398,17.8672,23,17.4805,23,17.0859V10.5C23,9.6729,22.3271,9,21.5,9z M10,21.5v-11c0-0.2759,0.2241-0.5,0.5-0.5
+	             h11c0.2754,0,0.5,0.2241,0.5,0.5V17h-5v1.3505c-0.3055,0.0933-0.6393,0.1423-1.0039,0.1423c-0.3809,0-0.7256-0.0498-1.0352-0.1484
+	             c-0.3105-0.0986-0.5918-0.2236-0.8438-0.375c-0.2529-0.1514-0.4795-0.3135-0.6797-0.4883
+	             c-0.2012-0.1748-0.3789-0.3369-0.5352-0.4883s-0.293-0.2764-0.4102-0.375s-0.2207-0.1484-0.3086-0.1484
+	             c-0.0781,0-0.1543,0.0171-0.2266,0.0508c-0.0732,0.0342-0.1367,0.0781-0.1914,0.1328s-0.0977,0.1182-0.1289,0.1914
+	             s-0.0469,0.1484-0.0469,0.2266c0,0.0625,0.0098,0.1211,0.0312,0.1758c0.0205,0.0547,0.0439,0.1084,0.0703,0.1602
+	             c0.1924,0.3594,0.4512,0.6797,0.7773,0.9609c0.3252,0.2812,0.6846,0.5205,1.0781,0.7188c0.3926,0.1982,0.8018,0.3486,1.2266,0.4531
+	             c0.4238,0.1045,0.832,0.1562,1.2227,0.1562c0.3221,0,0.6586-0.0442,1.0039-0.1151V22h-6.5C10.2241,22,10,21.7754,10,21.5z
+	             M18,21.293v-2.0128V18h3.293L18,21.293z"></path>
+                                              </g>
+                                              <g class="icons-filled">
+                                                <path d="M17,19.5807c-0.3453,0.0709-0.6818,0.1151-1.0039,0.1151c-0.3906,0-0.7988-0.0518-1.2227-0.1562
+	             c-0.4248-0.1045-0.834-0.2549-1.2266-0.4531c-0.3936-0.1982-0.7529-0.4375-1.0781-0.7188c-0.3262-0.2812-0.585-0.6016-0.7773-0.9609
+	             c-0.0264-0.0518-0.0498-0.1055-0.0703-0.1602c-0.0215-0.0547-0.0312-0.1133-0.0312-0.1758c0-0.0781,0.0156-0.1533,0.0469-0.2266
+	             s0.0742-0.1367,0.1289-0.1914s0.1182-0.0986,0.1914-0.1328c0.0723-0.0337,0.1484-0.0508,0.2266-0.0508
+	             c0.0879,0,0.1914,0.0498,0.3086,0.1484s0.2539,0.2236,0.4102,0.375s0.334,0.3135,0.5352,0.4883
+	             c0.2002,0.1748,0.4268,0.3369,0.6797,0.4883c0.252,0.1514,0.5332,0.2764,0.8438,0.375c0.3096,0.0986,0.6543,0.1484,1.0352,0.1484
+	             c0.3646,0,0.6984-0.049,1.0039-0.1423V17h6v-6.5C23,9.6729,22.3271,9,21.5,9h-11C9.6729,9,9,9.6729,9,10.5v11
+	             c0,0.8271,0.6729,1.5,1.5,1.5H17V19.5807z M17.2656,13.7102c0.0439-0.0962,0.1025-0.1821,0.1758-0.2578
+	             c0.0732-0.0752,0.1572-0.1353,0.2539-0.1797c0.0967-0.0439,0.1963-0.0664,0.3008-0.0664s0.2041,0.0225,0.3008,0.0664
+	             c0.0967,0.0444,0.1807,0.1045,0.2539,0.1797c0.0732,0.0757,0.1318,0.1616,0.1758,0.2578c0.0439,0.0967,0.0664,0.1968,0.0664,0.3008
+	             c0,0.1045-0.0225,0.2046-0.0664,0.3008c-0.0439,0.0967-0.1025,0.1812-0.1758,0.2539c-0.0732,0.0732-0.1572,0.1318-0.2539,0.1758
+	             c-0.0967,0.0444-0.1963,0.0664-0.3008,0.0664s-0.2041-0.022-0.3008-0.0664c-0.0967-0.0439-0.1807-0.1025-0.2539-0.1758
+	             c-0.0732-0.0728-0.1318-0.1572-0.1758-0.2539c-0.0439-0.0962-0.0664-0.1963-0.0664-0.3008
+	             C17.1992,13.907,17.2217,13.8069,17.2656,13.7102z M13.2656,13.7102c0.0439-0.0962,0.1025-0.1821,0.1758-0.2578
+	             c0.0723-0.0752,0.1572-0.1353,0.2539-0.1797c0.0957-0.0439,0.1963-0.0664,0.3008-0.0664c0.1035,0,0.2041,0.0225,0.3008,0.0664
+	             c0.0957,0.0444,0.1807,0.1045,0.2539,0.1797c0.0723,0.0757,0.1309,0.1616,0.1758,0.2578c0.0439,0.0967,0.0664,0.1968,0.0664,0.3008
+	             c0,0.1045-0.0225,0.2046-0.0664,0.3008c-0.0449,0.0967-0.1035,0.1812-0.1758,0.2539c-0.0732,0.0732-0.1582,0.1318-0.2539,0.1758
+	             c-0.0967,0.0444-0.1973,0.0664-0.3008,0.0664c-0.1045,0-0.2051-0.022-0.3008-0.0664c-0.0967-0.0439-0.1816-0.1025-0.2539-0.1758
+	             c-0.0732-0.0728-0.1318-0.1572-0.1758-0.2539c-0.0449-0.0962-0.0664-0.1963-0.0664-0.3008
+	             C13.1992,13.907,13.2207,13.8069,13.2656,13.7102z"></path>
+                                                <path
+                                                  d="M18,18v1.2802v3.4001c0.05-0.0385,0.1016-0.075,0.1465-0.1198l4.4141-4.4141C22.6054,18.1016,22.6418,18.05,22.6804,18H18z">
+                                                </path>
+                                              </g>
+                                            </g>
+                                          </svg>
+                                        </ng-include>
+                                      </button>
+                                    </input-extension-stickers>
+                                    <button class="ts-sym icons-call app-title-bar-button app-icons-fill-hover app-icons-fill-focus inset-border inset-border-round inset-border-themed">
+                                      <svg class="app-svg icons-call-meetup-line">
+                                        <g class="icons-default-fill">
+                                          <path class="icons-unfilled"
+                                            d="M23.7,12.041a.5.5,0,0,0-.542.1l-2.532,2.417a1.989,1.989,0,0,0,0,2.89l2.532,2.417A.5.5,0,0,0,23.5,20a.491.491,0,0,0,.2-.041A.5.5,0,0,0,24,19.5v-7A.5.5,0,0,0,23.7,12.041ZM23,18.332l-1.687-1.61a.986.986,0,0,1,0-1.442L23,13.668ZM19,18.5v-5A1.5,1.5,0,0,0,17.5,12H9.756a1.508,1.508,0,0,0-1.471,1.188,14.01,14.01,0,0,0,0,5.625A1.508,1.508,0,0,0,9.756,20H17.5A1.5,1.5,0,0,0,19,18.5Zm-9.736.106a13.007,13.007,0,0,1,0-5.211A.5.5,0,0,1,9.756,13H17.5a.5.5,0,0,1,.5.5v5a.5.5,0,0,1-.5.5H9.756A.5.5,0,0,1,9.264,18.606Z">
+                                          </path>
+                                          <path class="icons-unfilled"
+                                            d="M19.482,22.066a7.076,7.076,0,0,1-6.965,0,.5.5,0,0,0-.5.867,7.962,7.962,0,0,0,7.961,0,.5.5,0,0,0-.5-.867ZM12.518,9.934a7.076,7.076,0,0,1,6.965,0,.5.5,0,0,0,.5-.867,7.962,7.962,0,0,0-7.961,0,.5.5,0,0,0,.5.867Z">
+                                          </path>
+                                          <path class="icons-filled"
+                                            d="M19.482,22.066a7.076,7.076,0,0,1-6.965,0,.5.5,0,0,0-.5.867,7.962,7.962,0,0,0,7.961,0,.5.5,0,0,0-.5-.867ZM12.518,9.934a7.076,7.076,0,0,1,6.965,0,.5.5,0,0,0,.5-.867,7.962,7.962,0,0,0-7.961,0,.5.5,0,0,0,.5.867Z">
+                                          </path>
+                                          <path class="icons-filled"
+                                            d="M23.7,12.041a.5.5,0,0,0-.542.1l-2.532,2.417a1.989,1.989,0,0,0,0,2.89l2.532,2.417A.5.5,0,0,0,23.5,20a.491.491,0,0,0,.2-.041A.5.5,0,0,0,24,19.5v-7A.5.5,0,0,0,23.7,12.041ZM19,18.5v-5A1.5,1.5,0,0,0,17.5,12H9.756a1.508,1.508,0,0,0-1.471,1.188,14.01,14.01,0,0,0,0,5.625A1.508,1.508,0,0,0,9.756,20H17.5A1.5,1.5,0,0,0,19,18.5Z">
+                                          </path>
+                                        </g>
+                                      </svg>
+                                    </button>
+                                    <input-extensions-selector class="compose-stripe">
+                                      <div class="input-extensions-inline-pinned compose-stripe">
+                                        <ul class="input-extensions-inline-pinned">
+                                          <li class="input-extensions-inline-pinned-item">
+                                            <button class="ts-sym icons-emoji app-icons-fill-hover shortcuts-funstuff inset-border inset-border-round inset-border-themed">
+                                              <div class="fav-image-container">
+                                                <svg class="input-extensions-img input-extensions-svg">
+                                                  <filter
+                                                    ng-attr-id="input-extension-filter-{{ctrl.favoritesVisibleIconId[ $index ]}}"
+                                                    id="input-extension-filter-79490586038c441abe9d284e49108fc4">
+                                                    <fecolormatrix color-interpolation-filters="sRGB" in="SourceGraphic" type="matrix" 
+                                                      values="0.08627450980392157  0           0           0           0
+        0           0.13725490196078433  0           0           0
+        0           0           0.22745098039215686  0           0
+        0           0           0           0.74  0">
+                                                    </fecolormatrix>
+                                                  </filter>
+                                                  <image ng-attr-filter="url(#input-extension-filter-{{ctrl.favoritesVisibleIconId[ $index ]}})"  xlink:href="https://statics.teams.cdn.office.net/evergreen-assets/apps/extensioncatalog_tabstreamname_smallimage.png?v=1.1" width="100%" height="100%" filter="url(#input-extension-filter-79490586038c441abe9d284e49108fc4)">
+                                                  </image>
+                                                </svg>
+                                              </div>
+                                            </button>
+                                          </li>
+                                          <li class="input-extensions-inline-pinned-item">
+                                            <button class="ts-sym icons-emoji app-icons-fill-hover shortcuts-funstuff inset-border inset-border-round inset-border-themed">
+                                              <div class="fav-image-container">
+                                                <svg class="input-extensions-img input-extensions-svg">
+                                                  <filter id="input-extension-filter-60c5bff7c25449e6b7409a4c958ef0ea">
+                                                    <fecolormatrix color-interpolation-filters="sRGB" in="SourceGraphic" type="matrix"
+                                                      values="0.08627450980392157  0           0           0           0
+        0           0.13725490196078433  0           0           0
+        0           0           0.22745098039215686  0           0
+        0           0           0           0.74  0">
+                                                    </fecolormatrix>
+                                                  </filter>
+                                                  <image ng-attr-filter="url(#input-extension-filter-{{ctrl.favoritesVisibleIconId[ $index ]}})" xlink:href="https://statics.teams.cdn.office.net/evergreen-assets/apps/d832a33f-28c2-4969-8ad0-4fee681dc5b4_smallImage.png?v=1.0.20190627" width="100%" height="100%" filter="url(#input-extension-filter-60c5bff7c25449e6b7409a4c958ef0ea)">
+                                                  </image>
+                                                </svg>
+                                              </div>
+                                            </button>
+                                          </li>
+                                        </ul>
+                                        <button class="ts-sym pull-right icons-emoji app-icons-fill-hover shortcuts-funstuff inset-border inset-border-round inset-border-themed showmore-options">
+                                          <ng-include>
+                                            <svg class="app-svg icons-more app-bar-extra-icons-fill-colors">
+                                              <g class="icons-default-fill">
+                                                <circle class="icons-filled" cx="22" cy="16" r="2"></circle>
+                                                <circle class="icons-filled" cx="16" cy="16" r="2"></circle>
+                                                <circle class="icons-filled" cx="10" cy="16" r="2"></circle>
+                                                <circle class="icons-unfilled" cx="22" cy="16" r="1.5"></circle>
+                                                <circle class="icons-unfilled" cx="16" cy="16" r="1.5"></circle>
+                                                <circle class="icons-unfilled" cx="10" cy="16" r="1.5"></circle>
+                                              </g>
+                                            </svg></ng-include>
+                                        </button>
+                                      </div>
+                                    </input-extensions-selector>
+                                  </div>
+                                </div>
+                                <div class="compose-send-discard"
+                                  acc-role-dom="sub-menu tab-handler-new-send-discard-buttons" role="menu">
+                                  <button class="extension-icon-button focus-round-border ts-sym pull-left app-icons-fill-hover icons-send inset-border inset-border-round inset-border-themed compose-stripe-directive">
+                                    <ng-include>
+                                      <svg class="app-svg icons-send icons-rtl-flip">
+                                        <g class="icons-default-fill">
+                                          <path class="icons-unfilled" d="M23,15.6C23,15.6,23,15.6,23,15.6L9.4,10.1C9.1,9.9,8.7,10,8.4,10.2c-0.3,0.2-0.4,0.6-0.3,1l1.2,5.3L8,21.8
+          c-0.1,0.4,0,0.7,0.3,1C8.6,22.9,8.8,23,9,23c0.1,0,0.3,0,0.4-0.1L23,17.4c0.4-0.2,0.6-0.5,0.6-0.9C23.6,16.1,23.4,15.8,23,15.6z
+          M9,11l12.3,5H10.2L9,11z M9,22l1.2-5h11.2L9,22z"></path>
+                                          <path class="icons-filled" d="M23.2074,15.0927c-0.0063-0.0029-0.0127-0.0056-0.0193-0.0083L9.6355,9.4773c-0.3496-0.1626-0.7519-0.1128-1.051,0.1301
+	        c-0.2991,0.2424-0.4311,0.6262-0.3447,1.0017l1.1287,4.8908h10.1314v1H9.3685L8.2398,21.391
+	        c-0.0864,0.3752,0.0457,0.759,0.3447,1.0015c0.1851,0.1501,0.4097,0.2263,0.6323,0.2263c0.137,0,0.2734-0.0291,0.3992-0.0876
+	        l13.5915-5.624c0.3572-0.166,0.5791-0.5134,0.5791-0.9072C23.7865,15.6061,23.5646,15.2587,23.2074,15.0927z">
+                                          </path>
+                                        </g>
+                                      </svg>
+                                    </ng-include>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </new-message>
+                        </div>
+                      </div>
+                    </message-pane>
+                  </div>
+                </div>
+              </messages-header>
+            </div>
+          </middle-messages-stripe>
+        </div>
+        <div class="ts-draggable-multi-call-list-container ng-hide">
+          <div class="ts-draggable-multi-call-list-header">
+            <div class="icon-float-center">
+              <ng-include class="icons-white-override">
+                <svg class="app-svg icons-gripper">
+                  <g>
+                    <circle cx="9" cy="5.6" r="2.3"></circle>
+                    <circle cx="9" cy="12.4" r="2.3"></circle>
+                    <circle cx="15.7" cy="5.6" r="2.3"></circle>
+                    <circle cx="15.7" cy="12.4" r="2.3"></circle>
+                    <circle cx="2.3" cy="5.6" r="2.3"></circle>
+                    <circle cx="2.3" cy="12.4" r="2.3"></circle>
+                  </g>
+                </svg>
+              </ng-include>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+</body>
+
+</html>
