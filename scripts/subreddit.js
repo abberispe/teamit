@@ -1,7 +1,6 @@
 var subreddit_name = getUrlVars()["subreddit"]
 
 window.onload = function () {
-    console.log(subreddit_name);
     setSubreddit(subreddit_name);
 };
 

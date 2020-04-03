@@ -4,27 +4,23 @@
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <title ng-bind="app.pageTitle">Microsoft Teams</title>
-  <link rel="icon" type="image/png"
-    href="https://statics.teams.cdn.office.net/hashedassets/favicon/prod/favicon-16x16-aedbfeac.png">
+  <link rel="icon" type="image/png" href="https://statics.teams.cdn.office.net/hashedassets/favicon/prod/favicon-16x16-aedbfeac.png">
+  <link id="themed-stylesheet" rel="stylesheet" href="styles/subreddit.css">
 
-
-  <script src="../libraries/jquery.js"></script>
-  <script src="subreddit.js"></script>
-  <script src="../comment_template.js"></script>
+  <script src="libraries/jquery.js"></script>
+  <script src="scripts/subreddit.js"></script>
+  <script src="comment_template.js"></script>
   <script>
 
     var all_comment_data = [];
     var submission_data = [];
 
     function getSubmission(submission_id, subreddit, new_submission) { // When user presses on a post
-      console.log("showSubmission");
       addShade(submission_id); // Adding the shading on the left rail
       var comments_area = document.getElementById("submission_comments");
       comments_area.innerHTML = "";
       if (new_submission) { // new_submission exists to not get the data that is already loaded. If user clicks on the post that is already being shown, it will not access the reddit API.
         $.get("https://www.reddit.com/r/" + subreddit + "/comments/" + submission_id + ".json").then(function (back, status) {
-          console.log(back);
-          console.log("https://www.reddit.com/r/" + subreddit + "/comments/" + submission_id + ".json");
           all_comment_data = back[1];                      // These global variables exists for easy access
           submission_data = back[0].data.children[0].data; // of the submission data received from the API
           showSubmissionToHTML();
@@ -35,7 +31,6 @@
     }
 
     function showSubmissionToHTML() {
-      console.log("showSubmissionHTML");
       var selftext = ""
       if ("selftext" in submission_data) { // If post has a body, we append it.
         selftext = submission_data.selftext;
@@ -43,8 +38,6 @@
       var comments_area = document.getElementById("submission_comments");
 
       var submission_url_hostname = extractHostname(submission_data.url); // Getting the hostname of the url received from reddit API.
-
-      console.log(submission_data.url.slice(submission_data.url.length - 4))
 
       // Filtering out all websites but reddit and imgur. This is because of the hard to access resolutions of some urls. Also, temporarily filtering out gifs, so to only show their url.
       if ((submission_url_hostname == "www.reddit.com" || submission_url_hostname == "i.redd.it" || submission_url_hostname == "v.redd.it" || submission_url_hostname == "i.imgur.com") && submission_data.url.slice(submission_data.url.length - 4) !== "gifv") {
@@ -58,7 +51,6 @@
       } else { // If the url is none of the above, or if the submission includes a gif.
         var different_url = submission_data.url;
         var different_url_html = `<a href="${different_url}">${different_url}</a>`;
-        console.log(different_url_html)
         comments_area.innerHTML += addParent(submission_data.author, submission_data.score, submission_data.title, [], different_url_html) // Adding the post, but with the different url as body of the submission.
       }
 
@@ -71,7 +63,6 @@
     }
 
     function addShade(id) { // Removing all previous shades, then adds shade on the selected one.
-      console.log("selectSubmission");
       var submission_title_list_children = document.getElementById("submission_title_list").children;
       for (var i = 0; i < submission_title_list_children.length; i++) {
         submission_title_list_children[i].classList.remove("left-rail-selected");
@@ -81,7 +72,6 @@
     }
 
     function showReplies(id_tree, back) { // id_tree is a list of where in the comment-tree we're in.
-      console.log("showReplies");
       if (id_tree.length == 0 && back) { // If we go back all the way to the OP
         getSubmission(submission_data.id, all_comment_data.data.children[0].data.subreddit, false);
       } else {
@@ -115,7 +105,6 @@
     }
 
     function findCommentId(array, id) {
-      console.log("findCommentId");
       for (var i = 0; i < array.length; i++) {
         if (array[i].data.id == id) {
           return i;
@@ -134,7 +123,6 @@
     }
 
     function showImage(url, width, height) {
-      console.log(url, width, height);
       var submission_image = document.getElementById("submission_image");
       var space_maker = document.getElementById("space_maker");
       var toggle_image_button = document.getElementById("toggle_image_button");
@@ -155,7 +143,6 @@
     }
 
     function showVideo(video_src, audio_src, width, height) {
-      console.log("RES: ", width, height)
       var submission_image = document.getElementById("submission_video");
       var toggle_video_button = document.getElementById("toggle_video_button");
       var resized_width = Math.round((512 / height) * width);
@@ -187,7 +174,6 @@
 
 
   </script>
-  <link id="themed-stylesheet" rel="stylesheet" href="../styles/subreddit.css">
 </head>
 
 <body class="exp-density-view initialized hide-messages power-bar-visible loadingscreendone">
@@ -620,7 +606,7 @@
                         <div class="app-left-rail-width">
                           <div class="team-picture">
                             <profile-picture class="school-app-team-avatar">
-                              <img class="team-icon" src="../styles/teamicon" style="object-fit: cover;">
+                              <img class="team-icon" src="styles/teamicon" style="object-fit: cover;">
                             </profile-picture>
                           </div>
                           <div class="school-app-team-title">
@@ -669,7 +655,7 @@
                             <div class="team-text-info-inner-wrapper">
                               <div class="ts-title-bar-icon">
                                 <profile-picture>
-                                  <img class="team-icon" src="../styles/teamicon" style="object-fit: cover;">
+                                  <img class="team-icon" src="styles/teamicon" style="object-fit: cover;">
                                 </profile-picture>
                               </div>
                               <div class="team-info-container">

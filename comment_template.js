@@ -1,5 +1,4 @@
 function addComment(author, score, body, back){
-  console.log("addComment");
   for (var i = 0; i < back.length; i++){
     if (back[i][0] !== "'"){
       back[i] = "'" + back[i] + "'";
@@ -12,8 +11,6 @@ function addComment(author, score, body, back){
 }
 
 function addParent(author, score, title, back, body){
-  console.log("addParent");
-  console.log(body);
   for (var i = 0; i < back.length; i++){
     if (back[i][0] !== "'"){
       back[i] = "'" + back[i] + "'";
@@ -29,7 +26,6 @@ function addParent(author, score, title, back, body){
 }
 
 function addParentWithImage(author, score, title, image_data, body){
-  console.log("addParentWithImage");
   var height = image_data[image_data.length - 1].height;
   var width = image_data[image_data.length - 1].width;
   var resized_width = Math.round((512/height) * width);
@@ -50,13 +46,11 @@ function addParentWithImage(author, score, title, image_data, body){
 }
 
 function addParentWithVideo(author, score, title, video_data, body){
-  console.log("addParentWithVideo");
   var video_src = video_data.media.reddit_video.fallback_url;
   var audio_src = video_data.url + "/audio";
 
   var width = video_data.media.reddit_video.width;
   var height = video_data.media.reddit_video.height;
-  console.log(video_src, audio_src);
   var html = `<div>
                 <b>${title}</b>
                 <br>

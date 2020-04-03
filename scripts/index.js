@@ -3,18 +3,14 @@ var subreddits_in_row = 3; // For making the formatting of
 var row = 1;               // teams prettier
 
 function toSubreddit(subreddit){ // Using url-queries to navigate subreddits.
-    console.log(subreddit);
     selected_subreddit = subreddit;
-    window.location.assign("../subreddit/subreddit.html?subreddit=" + subreddit);
+    window.location.assign("subreddit.html?subreddit=" + subreddit);
 }
 
 function addSubreddit(){ // Adding a subreddit as a team
-    console.log("addSubreddit");
     var new_subreddit = prompt("Enter a subreddit name:")
-    console.log(new_subreddit);
     $.get("https://www.reddit.com/r/" + new_subreddit + "/about.json").then(function(back, status){
       var display_name = back.data.display_name;
-      console.log("back")
       addSubredditHTML(display_name);
      }).fail(function(back){
          alert("Could not find subreddit")
