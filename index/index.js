@@ -5,7 +5,7 @@ var row = 1;               // teams prettier
 function toSubreddit(subreddit){ // Using url-queries to navigate subreddits.
     console.log(subreddit);
     selected_subreddit = subreddit;
-    window.location.assign("subreddit.html?subreddit=" + subreddit);
+    window.location.assign("../subreddit/subreddit.html?subreddit=" + subreddit);
 }
 
 function addSubreddit(){ // Adding a subreddit as a team
