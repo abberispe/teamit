@@ -2,6 +2,17 @@ var selected_subreddit = "";
 var subreddits_in_row = 3; // For making the formatting of 
 var row = 1;               // teams prettier
 
+window.onload = function () {
+    var user_teams = JSON.parse(localStorage.getItem("user_teams"));
+    if (user_teams == null){
+        localStorage.setItem("user_teams", JSON.stringify([]));
+        user_teams = [];
+    }
+    user_teams.forEach(function(team){
+        addSubredditHTML(team);
+    });
+};
+
 function toSubreddit(subreddit){ // Using url-queries to navigate subreddits.
     selected_subreddit = subreddit;
     window.location.assign("subreddit.html?subreddit=" + subreddit);
@@ -11,6 +22,10 @@ function addSubreddit(){ // Adding a subreddit as a team
     var new_subreddit = prompt("Enter a subreddit name:")
     $.get("https://www.reddit.com/r/" + new_subreddit + "/about.json").then(function(back, status){
       var display_name = back.data.display_name;
+      var user_teams = JSON.parse(localStorage.getItem("user_teams"));
+      console.log(user_teams)
+      user_teams.push(new_subreddit);
+      localStorage.setItem("user_teams", JSON.stringify(user_teams));
       addSubredditHTML(display_name);
      }).fail(function(back){
          alert("Could not find subreddit")
@@ -45,4 +60,12 @@ function addSubredditHTML(display_name){ // Adding the new subreddit to HTML.
         </ng-include>
         </div>
     </div>`
+}
+
+function removeSubreddit(){
+    var removed_subreddit = prompt("Enter a subreddit name to remove:");
+    var user_teams = JSON.parse(localStorage.getItem("user_teams"));
+    user_teams = user_teams.filter(function(subreddit) { return subreddit !== removed_subreddit }) // Removing the provided subreddit from localstorage
+    localStorage.setItem("user_teams", JSON.stringify(user_teams));destroyinternet (on) (nofinalsforarvid)
+    location.reload();
 }
