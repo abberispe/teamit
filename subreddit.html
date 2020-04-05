@@ -147,9 +147,9 @@
       var toggle_video_button = document.getElementById("toggle_video_button");
       var resized_width = Math.round((512 / height) * width);
       submission_image.innerHTML = `
-      <video height="512" width="${resized_width}" onplay="audio.play();" onpause="audio.pause();" controls>
+      <video height="512" width="${resized_width}" onplay="audio.play();" onpause="audio.pause();" id="video" onclick="changeVideoState()" autoplay loop>
         <source src="${video_src}" type="video/mp4">
-        <audio id="audio" controls>
+        <audio id="audio" autoplay loop>
             <source src="${audio_src}" type="audio/mpeg"/>
         </audio>
         Your browser does not support the video tag.
@@ -170,6 +170,15 @@
       hostname = hostname.split(':')[0];
       hostname = hostname.split('?')[0];
       return hostname;
+    }
+    
+    function changeVideoState(){
+      var video = document.getElementById("video");
+      if (video.paused){
+        video.play();
+      } else {
+        video.pause();
+      }
     }
 
 
