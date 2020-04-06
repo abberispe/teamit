@@ -10,6 +10,60 @@
   <script src="libraries/jquery.js"></script>
   <script src="scripts/subreddit.js"></script>
   <script src="comment_template.js"></script>
+  <style>
+    .spinner {
+      margin: 100px auto;
+      width: 50px;
+      height: 40px;
+      text-align: center;
+      font-size: 10px;
+    }
+
+    .spinner > div {
+      background-color: #333;
+      height: 100%;
+      width: 6px;
+      display: inline-block;
+      
+      -webkit-animation: sk-stretchdelay 1.2s infinite ease-in-out;
+      animation: sk-stretchdelay 1.2s infinite ease-in-out;
+    }
+
+    .spinner .rect2 {
+      -webkit-animation-delay: -1.1s;
+      animation-delay: -1.1s;
+    }
+
+    .spinner .rect3 {
+      -webkit-animation-delay: -1.0s;
+      animation-delay: -1.0s;
+    }
+
+    .spinner .rect4 {
+      -webkit-animation-delay: -0.9s;
+      animation-delay: -0.9s;
+    }
+
+    .spinner .rect5 {
+      -webkit-animation-delay: -0.8s;
+      animation-delay: -0.8s;
+    }
+
+    @-webkit-keyframes sk-stretchdelay {
+      0%, 40%, 100% { -webkit-transform: scaleY(0.4) }  
+      20% { -webkit-transform: scaleY(1.0) }
+    }
+
+    @keyframes sk-stretchdelay {
+      0%, 40%, 100% { 
+        transform: scaleY(0.4);
+        -webkit-transform: scaleY(0.4);
+      }  20% { 
+        transform: scaleY(1.0);
+        -webkit-transform: scaleY(1.0);
+      }
+    }
+  </style>
   <script>
 
     var all_comment_data = [];
@@ -18,7 +72,7 @@
     function getSubmission(submission_id, subreddit, new_submission) { // When user presses on a post
       addShade(submission_id); // Adding the shading on the left rail
       var comments_area = document.getElementById("submission_comments");
-      comments_area.innerHTML = "";
+      comments_area.innerHTML = `<div class="spinner" id="spinner"><div class="rect1"></div><div class="rect2"></div><div class="rect3"></div><div class="rect4"></div><div class="rect5"></div></div>`; // Adding loading icon
       if (new_submission) { // new_submission exists to not get the data that is already loaded. If user clicks on the post that is already being shown, it will not access the reddit API.
         $.get("https://www.reddit.com/r/" + subreddit + "/comments/" + submission_id + ".json").then(function (back, status) {
           all_comment_data = back[1];                      // These global variables exists for easy access
@@ -38,6 +92,8 @@
       var comments_area = document.getElementById("submission_comments");
 
       var submission_url_hostname = extractHostname(submission_data.url); // Getting the hostname of the url received from reddit API.
+
+      comments_area.innerHTML = "";
 
       // Filtering out all websites but reddit and imgur. This is because of the hard to access resolutions of some urls. Also, temporarily filtering out gifs, so to only show their url.
       if ((submission_url_hostname == "www.reddit.com" || submission_url_hostname == "i.redd.it" || submission_url_hostname == "v.redd.it" || submission_url_hostname == "i.imgur.com") && submission_data.url.slice(submission_data.url.length - 4) !== "gifv") {
@@ -147,14 +203,29 @@
       var toggle_video_button = document.getElementById("toggle_video_button");
       var resized_width = Math.round((512 / height) * width);
       submission_image.innerHTML = `
-      <video height="512" width="${resized_width}" onplay="audio.play();" onpause="audio.pause();" id="video" onclick="changeVideoState()" autoplay loop>
+      <video height="512" width="${resized_width}" id="video"" controls>
         <source src="${video_src}" type="video/mp4">
-        <audio id="audio" autoplay loop>
+        <audio id="audio">
             <source src="${audio_src}" type="audio/mpeg"/>
         </audio>
         Your browser does not support the video tag.
       </video>
       `
+      var video = document.getElementById("video");
+      var audio = document.getElementById("audio");
+      var change_time_state = true;
+
+      video.onplay = function(){
+          audio.play();
+          if(change_time_state){
+              yaudio.currentTime = video.currentTime;
+              change_time_state = false;
+          }
+      }
+      video.onpause = function(){
+          audio.pause();
+          change_time_state = true;
+      }
       toggle_video_button.innerHTML = "Hide video";
       toggle_video_button.onclick = function () { hideVideo(video_src, audio_src, width, height); }
     }
@@ -170,15 +241,6 @@
       hostname = hostname.split(':')[0];
       hostname = hostname.split('?')[0];
       return hostname;
-    }
-    
-    function changeVideoState(){
-      var video = document.getElementById("video");
-      if (video.paused){
-        video.play();
-      } else {
-        video.pause();
-      }
     }
 
 
@@ -728,11 +790,11 @@
 
                               <message-list class="flex-fill message-list-common smooth-highlight">
                                 <div class="flex-fill">
-                                  <virtual-repeat
-                                    class="ts-message-list no-animation simple-scrollbar not-at-top overflow-visible stability not-at-bottom">
+                                  <virtual-repeat class="ts-message-list no-animation simple-scrollbar not-at-top overflow-visible stability not-at-bottom">
                                     <div class="list-wrap list-wrap-v3 ts-message-list-container"
                                       id="submission_comments">
                                       <!--COMMENTS-->
+                                    
                                       <div class="vr-padding-v3 vr-after top"></div>
 
                                     </div>

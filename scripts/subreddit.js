@@ -1,7 +1,8 @@
 var subreddit_name = getUrlVars()["subreddit"]
 
 window.onload = function () {
-    setSubreddit(subreddit_name);
+  $("#spinner").hide();
+  setSubreddit(subreddit_name);
 };
 
 function setSubreddit(subreddit){
